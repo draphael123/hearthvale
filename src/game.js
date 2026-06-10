@@ -36,6 +36,7 @@ export function newGame(palette, stackSize = 50, startEdges = null) {
     journeyIdx: 0,       // Journey mode: index of the active objective
     weatherOn: true,     // weather fronts active (main syncs to the Weather setting)
     weather: { type: null, left: 0, until: 6 },
+    torches: 2,          // controlled burns: deliberately ignite your own land
     rotation: 0,
     score: 0,
     placed: 0,
@@ -118,7 +119,7 @@ export function serialize(g) {
     blighthearts: g.blighthearts || [], lastHeartAt: g.lastHeartAt || 0,
     cleansedTotal: g.cleansedTotal || 0, heartsPurged: g.heartsPurged || 0, mode: g.mode,
     held: g.held || null, heldUsed: !!g.heldUsed, endless: !!g.endless, journeyIdx: g.journeyIdx || 0,
-    weatherOn: g.weatherOn !== false, weather: g.weather || null, stats: g.stats || {},
+    weatherOn: g.weatherOn !== false, weather: g.weather || null, stats: g.stats || {}, torches: g.torches || 0, gentleStart: !!g.gentleStart,
     current: g.current, stack: g.stack, quests: g.quests,
     board: [...g.board.values()],
   };
@@ -140,6 +141,7 @@ export function deserialize(d) {
     cleansedTotal: d.cleansedTotal || 0, heartsPurged: d.heartsPurged || 0, mode: d.mode || 'warden',
     held: d.held || null, heldUsed: !!d.heldUsed, endless: !!d.endless, journeyIdx: d.journeyIdx || 0,
     weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 }, stats: d.stats || {},
+    torches: d.torches || 0, gentleStart: !!d.gentleStart,
   };
 }
 
@@ -298,7 +300,8 @@ function advanceFire(g) {
     if (opts.length) { opts[(Math.random() * opts.length) | 0].burning = 2; out.spread++; }
   }
   // Fresh ignition only during a drought, and only if nothing burns yet.
-  if (!burning.length && wt === 'sun' && g.placed > 8) {
+  // (A player's very first vale gets a long grace period.)
+  if (!burning.length && wt === 'sun' && g.placed > (g.gentleStart ? 24 : 8)) {
     const chance = g.mode === 'warden' ? 0.22 : 0.05;
     if (Math.random() < chance) {
       const cands = [...g.board.values()].filter(t => flammable(t) && !firebreak(t));
@@ -321,6 +324,7 @@ function advanceFlood(g) {
     for (const t of g.board.values()) if (t.flooded) { t.flooded = false; t.floodplain = true; out.receded++; }
     return out;
   }
+  if (g.gentleStart && g.placed < 24) return out;     // first-vale grace
   const sources = [...g.board.values()].filter(t => t.flooded || t.edges.includes('water'));
   for (const s of sources) {
     if (Math.random() > 0.22) continue;
@@ -342,7 +346,7 @@ function advanceFlood(g) {
 // it (+ bonus). Overgrown brush is tinder — fire clears it too.
 function advanceOvergrowth(g) {
   const out = { grew: 0 };
-  if ((g.placed % 3) !== 0) return out;
+  if ((g.placed % 3) !== 0 || (g.gentleStart && g.placed < 24)) return out;
   if (Math.random() >= (g.mode === 'warden' ? 0.22 : 0.12)) return out;
   const cands = [];
   for (const t of g.board.values()) {
@@ -359,6 +363,20 @@ function advanceOvergrowth(g) {
   }
   if (cands.length) { cands[(Math.random() * cands.length) | 0].overgrown = true; out.grew = 1; }
   return out;
+}
+
+// Controlled burn: spend a torch to deliberately ignite one of your tiles —
+// clears brambles, and the burn leaves fertile ash to build beside. The fire
+// is real: it can spread, so pick a spot with firebreaks around it.
+export function igniteTile(g, q, r) {
+  if ((g.torches || 0) <= 0 || g.gameOver) return false;
+  const t = g.board.get(key(q, r));
+  if (!t || !flammable(t) || firebreak(t)) return false;
+  t.burning = 2;
+  g.torches--;
+  const st = g.stats || (g.stats = {});
+  st.torched = (st.torched || 0) + 1;
+  return true;
 }
 
 // Per-edge scoring for a set of matched edge indices under a season + weather.

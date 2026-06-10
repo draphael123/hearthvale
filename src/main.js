@@ -1,10 +1,10 @@
 // Entry point: game loop, input, pan/zoom, and meta-save wiring.
 import { pixelToHex, hexToPixel, key } from './hex.js';
-import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER } from './game.js';
+import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER, igniteTile } from './game.js';
 import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
-  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, setRenderScale, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
+  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, setRenderScale, setUiScale, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
 import { START_OPTIONS } from './tiles.js';
 import { loadSave, saveRun, paletteFor, todayYmd, persist, THEMES } from './meta.js';
 import { setRng } from './tiles.js';
@@ -32,6 +32,8 @@ function resizeCanvas() {
   const bw = Math.round(W * rs), bh = Math.round(H * rs);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   setRenderScale(rs);
+  // Phone-sized canvas → grow on-screen buttons toward ~44px physical.
+  setUiScale(rect.width / W < 0.8 ? 1.4 : 1);
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -87,6 +89,12 @@ let g = newGame(paletteFor(save));
 // ---- save / resume an in-progress run ----
 const RUN_KEY = 'hearthvale.run.v1';
 function hasSavedRun() { try { return !!localStorage.getItem(RUN_KEY); } catch (e) { return false; } }
+
+// First-run onboarding: brand-new players walk through the tutorial before
+// their first vale (once — skippable with ✕, never repeats after).
+const TUT_SEEN = 'hearthvale.tutseen.v1';
+function seenTutorial() { try { return !!localStorage.getItem(TUT_SEEN); } catch (e) { return true; } }
+function markTutorialSeen() { try { localStorage.setItem(TUT_SEEN, '1'); } catch (e) { /* ignore */ } }
 function saveRunState() {
   if (g.gameOver) { clearRunState(); return; }
   try { localStorage.setItem(RUN_KEY, JSON.stringify({ data: serialize(g), daily: view.daily })); } catch (e) { /* ignore */ }
@@ -127,6 +135,7 @@ function startRun(daily, mode, startEdges, paletteOverride) {
   g.endless = (m === 'zen' || m === 'journey');   // Zen + Journey never run out
   g.corruptionOn = m === 'warden';
   g.weatherOn = settings.weather !== false;        // weather fronts follow the Weather setting
+  g.gentleStart = (save.runs || 0) === 0;          // very first vale: wilds hold off a while
   view.mode = g.mode;
   view.startEdges = daily ? null : (startEdges || null);
   view.palette = paletteOverride || null;       // remember themed palette for replay
@@ -214,15 +223,15 @@ function tryPlace() {
   if (res.fireStarted) {
     banners.push([86, '🔥 Wildfire!', '#ff9a4d']);
     toasts.push([86, 'Wildfire!', 'Rain douses it · water, marsh & mountains block it', '#ff9a4d']);
-    wantSound(78, () => audio.blight());
+    wantSound(78, () => audio.fireStart());
   }
   if (res.fireDoused) { toasts.push([60, 'Fire doused', `the flames go out · +${res.fireDoused * 25}`, '#8fd0e0']); wantSound(47, () => audio.cleanse()); }
   if (res.ashBonus) toasts.push([45, 'Fertile ash', `new growth on burnt land · +${res.ashBonus}`, '#d9b48a']);
-  if (res.flooded) toasts.push([58, 'Floodwater rises', 'low fields drown until the rain passes — high ground holds', '#6fa6d0']);
-  if (res.receded) toasts.push([56, 'The flood recedes', 'rich silt left behind — build beside it to claim it', '#8fd0a0']);
+  if (res.flooded) { toasts.push([58, 'Floodwater rises', 'low fields drown until the rain passes — high ground holds', '#6fa6d0']); wantSound(52, () => audio.flood()); }
+  if (res.receded) { toasts.push([56, 'The flood recedes', 'rich silt left behind — build beside it to claim it', '#8fd0a0']); wantSound(51, () => audio.recede()); }
   if (res.overgrew) toasts.push([62, 'The wild creeps in', 'brambles overgrow a farm — build beside it to prune them', '#7aa05a']);
-  if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 15}`, '#9bd86b']); wantSound(43, () => audio.bell(0.13)); }
-  if (res.siltBonus) toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']);
+  if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 15}`, '#9bd86b']); wantSound(43, () => audio.prune()); }
+  if (res.siltBonus) { toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']); wantSound(42, () => audio.bell(0.12)); }
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
 
   // Teaching hints only fill a quiet moment — never compete with a real event.
@@ -328,7 +337,10 @@ canvas.addEventListener('pointerup', (e) => {
       startAudio(); audio.click();
       if (hit === 'continue') resumeRun();
       else if (hit === 'howto') { tutorialIdx = 0; screen = 'tutorial'; }
-      else if (hit === 'newgame') { screen = 'modesel'; }
+      else if (hit === 'newgame') {
+        if (!seenTutorial() && !(view.save.runs > 0)) { tutorialIdx = 0; screen = 'tutorial'; }
+        else screen = 'modesel';
+      }
       else if (hit === 'daily') startRun(true);
       else if (hit === 'music') { view.musicScroll = 0; screen = 'music'; }
     }
@@ -382,9 +394,9 @@ canvas.addEventListener('pointerup', (e) => {
     startAudio();
     const hit = tutorialHit(mouse.x, mouse.y, tutorialIdx);
     if (hit) audio.click();
-    if (hit === 'close') screen = 'title';
+    if (hit === 'close') { markTutorialSeen(); screen = 'title'; }
     else if (hit === 'back') tutorialIdx = Math.max(0, tutorialIdx - 1);
-    else if (hit === 'next') { if (tutorialIdx >= tutorialCount() - 1) startRun(false); else tutorialIdx++; }
+    else if (hit === 'next') { if (tutorialIdx >= tutorialCount() - 1) { markTutorialSeen(); screen = 'modesel'; } else tutorialIdx++; }
     return;
   }
   if (screen === 'pause') {
@@ -417,8 +429,22 @@ canvas.addEventListener('pointerup', (e) => {
     const zh = zoomHit(mouse.x, mouse.y);
     if (zh) { view.size = Math.max(22, Math.min(60, view.size * (zh === 'zin' ? 1.18 : 0.85))); audio.click(); return; }
     const ch = g.current && controlHit(mouse.x, mouse.y);
-    if (ch === 'rotate') { rotateCW(g); audio.rotate(); return; }
-    if (ch === 'skip') { if (skipTile(g)) { audio.skip(); saveRunState(); } return; }
+    if (ch === 'rotate') { view.torchMode = false; rotateCW(g); audio.rotate(); return; }
+    if (ch === 'skip') { view.torchMode = false; if (skipTile(g)) { audio.skip(); saveRunState(); } return; }
+    if (ch === 'torch') {
+      if ((g.torches || 0) > 0) { view.torchMode = !view.torchMode; audio.click(); }
+      return;
+    }
+    // Torch armed: the next tap ignites a flammable tile (or cancels).
+    if (view.torchMode) {
+      view.torchMode = false;
+      if (mouse.hex && igniteTile(g, mouse.hex.q, mouse.hex.r)) {
+        audio.fireStart();
+        fx.toast('Controlled burn', 'the fire is yours now — keep it contained', '#ff9a4d');
+        saveRunState();
+      }
+      return;
+    }
     const hr = holdSlotRect();
     if (hr && mouse.x >= hr.x && mouse.x <= hr.x + hr.w && mouse.y >= hr.y && mouse.y <= hr.y + hr.h) {
       if (hold(g)) { audio.rotate(); saveRunState(); }
@@ -451,6 +477,8 @@ window.addEventListener('keydown', (e) => {
     if (skipTile(g)) audio.skip();
   } else if (e.key === 'h' || e.key === 'H') {
     if (screen === 'play' && hold(g)) { audio.rotate(); saveRunState(); }
+  } else if (e.key === 'f' || e.key === 'F') {
+    if (screen === 'play' && (g.torches || 0) > 0) { view.torchMode = !view.torchMode; audio.click(); }
   } else if (e.key === 'ArrowUp') {
     e.preventDefault(); setBoardTilt(BOARD_TILT + 0.05); saveTilt();   // raise camera (more top-down)
   } else if (e.key === 'ArrowDown') {

@@ -53,6 +53,28 @@
         letter-spacing: 0.5px;
         pointer-events: none;
       }
+      /* Small portrait screens get an unusably short letterboxed strip —
+         ask for landscape instead. */
+      #rotate {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        background: radial-gradient(circle at 50% 35%, #1b2a1f, #0a0f0b 80%);
+        color: #e6ddc6;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 14px;
+        font-size: 18px;
+        padding: 32px;
+      }
+      #rotate .turn { font-size: 52px; animation: turn 2.2s ease-in-out infinite; }
+      @keyframes turn { 0%, 25% { transform: rotate(0deg); } 60%, 100% { transform: rotate(90deg); } }
+      @media (orientation: portrait) and (max-width: 700px) {
+        #rotate { display: flex; }
+      }
     </style>
   </head>
   <body>
@@ -60,6 +82,7 @@
       <canvas id="game" width="960" height="540"></canvas>
     </div>
     <div id="hint">Click a glowing slot to place &middot; R / right-click / Space to rotate &middot; drag empty space to pan</div>
+    <div id="rotate"><div class="turn">&#x1F4F1;</div><div>Turn your phone sideways<br/>to visit the vale</div></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

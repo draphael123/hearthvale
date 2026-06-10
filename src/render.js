@@ -1212,7 +1212,7 @@ export function render(ctx, g, view, mouse, t, opts) {
   if (bgMode) return;
   if (!g.gameOver) {
     drawZoomButtons(ctx, mouse);
-    if (g.current) drawControlButtons(ctx, mouse);
+    if (g.current) drawControlButtons(ctx, mouse, g, view);
   }
   // ---- Right HUD panel ----
   drawPanel(ctx, g, view, t);
@@ -1454,8 +1454,12 @@ function drawIrrigationGlints(ctx, cx, cy, size, t, seed) {
 
 // ---- On-screen zoom buttons (board corner; drawn after the perspective warp
 // so they stay crisp UI, not part of the warped scene) ----
+// On small (phone) screens the canvas is scaled down, so logical buttons grow
+// to keep their PHYSICAL size near the ~44px touch guideline.
+let UI_SCALE = 1;
+export function setUiScale(s) { UI_SCALE = s; }
 export function zoomButtonRects() {
-  const s = 42, gap = 10, x = BOARD_W - 14 - s, yb = H - 16 - s;
+  const s = Math.round(42 * UI_SCALE), gap = 10, x = BOARD_W - 14 - s, yb = H - 16 - s;
   return {
     zin: { x, y: yb - s - gap, w: s, h: s, label: '+' },
     zout: { x, y: yb, w: s, h: s, label: '−' },
@@ -1484,26 +1488,36 @@ function drawZoomButtons(ctx, mouse) {
 // ---- Rotate / Skip touch buttons (bottom-left of board) so the game is fully
 // playable on touch without a keyboard. ----
 export function controlButtonRects() {
-  const s = 52, gap = 12, x0 = 16, yb = H - 16 - s;
+  const s = Math.round(52 * UI_SCALE), gap = 12, x0 = 16, yb = H - 16 - s;
   return {
     rotate: { x: x0, y: yb, w: s, h: s },
     skip: { x: x0 + s + gap, y: yb, w: s, h: s },
+    torch: { x: x0 + 2 * (s + gap), y: yb, w: s, h: s },
   };
 }
 export function controlHit(x, y) {
   const r = controlButtonRects();
-  for (const k of ['rotate', 'skip']) { const b = r[k]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return k; }
+  for (const k of ['rotate', 'skip', 'torch']) { const b = r[k]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return k; }
   return null;
 }
-function drawControlButtons(ctx, mouse) {
+function drawControlButtons(ctx, mouse, g, view) {
   const r = controlButtonRects();
-  for (const [k, acc] of [['rotate', '#cdb24a'], ['skip', '#9d8ac0']]) {
+  const defs = [['rotate', '#cdb24a'], ['skip', '#9d8ac0']];
+  if ((g.torches || 0) > 0) defs.push(['torch', '#ff9a4d']);
+  for (const [k, acc] of defs) {
     const b = r[k];
-    const hover = mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+    const armed = k === 'torch' && view && view.torchMode;
+    const hover = (mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h) || armed;
     roundRect(ctx, b.x, b.y, b.w, b.h, 12);
-    ctx.fillStyle = hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
+    ctx.fillStyle = armed ? 'rgba(80,40,14,0.96)' : hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hover ? acc : hexToRgba(acc, 0.5); ctx.stroke();
     const cxp = b.x + b.w / 2, cyp = b.y + b.h / 2 - 4, col = hover ? '#fff7e0' : '#e6ddc6';
+    if (k === 'torch') {
+      panelIcon(ctx, cxp, cyp, 20, 'flame', armed ? '#ffcf6e' : '#ff9a4d');
+      ctx.fillStyle = hover ? '#ffd9b0' : '#c0a08a'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
+      ctx.fillText(armed ? 'TAP A TILE' : 'BURN ×' + g.torches, cxp, b.y + b.h - 7);
+      continue;
+    }
     ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     if (k === 'rotate') {
       const R = 11;
@@ -1930,6 +1944,7 @@ function drawGameOver(ctx, g, view, t) {
     if (st.fires) story.push(`${st.fires} wildfire${st.fires > 1 ? 's' : ''} · ${st.doused || 0} doused · ${st.burned || 0} tile${(st.burned || 0) === 1 ? '' : 's'} burnt`);
     if (st.floods) story.push(`${st.floods} field${st.floods > 1 ? 's' : ''} flooded · rich silt claimed +${st.silt || 0}`);
     if (st.pruned) story.push(`${st.pruned} bramble patch${st.pruned > 1 ? 'es' : ''} pruned back`);
+    if (st.torched) story.push(`${st.torched} controlled burn${st.torched > 1 ? 's' : ''} set by your own hand`);
     if (story.length) {
       ctx.textAlign = 'center';
       panelDivider(ctx, cardX + 60, y - 10, cw - 120);
@@ -2405,7 +2420,7 @@ const TUT = [
   { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — and winter freezes the rivers', 'and blankets the land in snow.'], art: 'seasons' },
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
   { title: '8 · The living valley', body: ['Rivers water the farms beside them, and', 'watered farms yield a little every turn.', 'Receded floods leave rich silt; big wild', 'woods sprout brambles into your farmland.', 'Build beside silt or brambles to claim & prune.'], art: 'living' },
-  { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside.'], art: 'fire' },
+  { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], art: 'fire' },
   { title: '10 · The Blight & the Wardens', body: ['In Warden mode, a Blightheart rises and', 'corruption spreads from it (−points).', 'Wall it off with water / mountain / coast,', 'cleanse with fae tiles, and build a Wardtower —', 'its aura purges the heart over a few turns.'], art: 'blight' },
   { title: '11 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },
   { title: 'Go grow a vale', body: ['That’s everything! Fulfil decrees for more', 'tiles, raise towns, and watch the world come', 'to life around you.', '', 'Press Play and lay your first tile.'], art: 'tile' },

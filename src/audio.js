@@ -386,6 +386,38 @@ export function gameover() {
   [0, 3, 7, 12].forEach((s, i) => note(root * semis(s), 2.2, 'sine', 0.11, i * 0.2, null, 0.06));
 }
 
+// Wildfire catches: a dry whoosh with crackling pops.
+export function fireStart() {
+  if (!ctx || muted) return;
+  noise(0.55, 0.06, 0, 1200, 1.2, 0.3);                       // rushing air
+  note(150, 0.7, 'sine', 0.07, 0, 220, 0.05);                 // rising heat
+  for (let i = 0; i < 5; i++) noise(0.03, 0.05, 0.08 + i * 0.09 + Math.random() * 0.04, 2400 + Math.random() * 1600, 6, 0.1);   // crackle pops
+}
+
+// Floodwater rises: a dark watery swell.
+export function flood() {
+  if (!ctx || muted) return;
+  noise(0.9, 0.05, 0, 420, 0.9, 0.55);                        // surging water
+  note(220, 0.6, 'sine', 0.07, 0.05, 130, 0.05);              // sinking bloop
+  note(330, 0.3, 'sine', 0.035, 0.2, 240, 0.02);
+}
+
+// The flood recedes: a softer draining wash.
+export function recede() {
+  if (!ctx || muted) return;
+  noise(0.7, 0.03, 0, 900, 1.2, 0.45);
+  note(180, 0.5, 'sine', 0.05, 0.05, 320, 0.06);              // draining away (rising)
+}
+
+// Brambles pruned: two crisp garden snips.
+export function prune() {
+  if (!ctx || muted) return;
+  for (let i = 0; i < 2; i++) {
+    noise(0.025, 0.06, i * 0.12, 3400, 7, 0.08);
+    note(880 + i * 160, 0.06, 'sine', 0.04, i * 0.12, 660, 0.002);
+  }
+}
+
 // An ominous low groan when corruption stirs / spreads.
 export function blight() {
   if (!ctx || muted) return;
