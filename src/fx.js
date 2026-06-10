@@ -27,6 +27,10 @@ export function debug() {
 export function placeFx(x, y, size, lp) {
   drops.set(lp.q + ',' + lp.r, { age: 0, life: 300 });
   spawnDust(x, y + size * 0.3, size);
+  // Flourish: a radial light-pulse + fluttering leaf scatter on every landing
+  // (bigger and golden for a PERFECT placement).
+  spawnPulse(x, y, size * (lp.perfect ? 1.5 : 1), lp.perfect ? '255,224,138' : '255,243,200');
+  spawnLeaves(x, y, size, lp.perfect ? 14 : 7, lp.perfect);
   // settle ripple: nudge each neighbouring tile
   for (const [dq, dr] of RDIRS) ripples.set((lp.q + dq) + ',' + (lp.r + dr), { age: 0, life: 320 });
   // matched-edge flash: green glow along each seam that matched
@@ -76,6 +80,28 @@ function spawnRing(x, y, size, color) {
   E.push({ type: 'ring', x, y, age: 0, life: 520, color, r0: size * 0.3, r1: size * 1.5 });
 }
 
+// Soft expanding flash of light (additive) under a fresh placement.
+function spawnPulse(x, y, size, rgb) {
+  E.push({ type: 'pulse', x, y, age: 0, life: 360, rgb, r0: size * 0.25, r1: size * 1.9 });
+}
+
+// Little leaves/petals flutter up and out when a tile lands.
+const LEAF_COLS = ['#7fc36a', '#9bd86b', '#5fae54', '#e8c24a'];
+function spawnLeaves(x, y, size, n, gold) {
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+    const sp = size * (1.8 + Math.random() * 2.2);
+    parts.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6 - size * 2.2,
+      r: size * (0.09 + Math.random() * 0.05),
+      rot: Math.random() * Math.PI * 2, rotV: (Math.random() - 0.5) * 9,
+      col: gold && i % 2 ? '#ffe08a' : LEAF_COLS[(Math.random() * LEAF_COLS.length) | 0],
+    });
+  }
+  E.push({ type: 'leaf', parts, age: 0, life: 760, grav: size * 6 });
+}
+
 function spawnScore(x, y, text, color, fontSize) {
   E.push({ type: 'score', x, y, text, color, fontSize, age: 0, life: 900 });
 }
@@ -116,6 +142,7 @@ export function update(t) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.vy += e.grav * dt;
+        if (p.rotV) p.rot += p.rotV * dt;
       }
     }
     if (e.age >= e.life) E.splice(i, 1);
@@ -162,6 +189,25 @@ export function draw(ctx) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r * (e.type === 'spark' ? 1 : (0.6 + fade * 0.6)), 0, Math.PI * 2);
         ctx.fill();
+      }
+    } else if (e.type === 'pulse') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const r = e.r0 + (e.r1 - e.r0) * easeOut(k);
+      const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+      g.addColorStop(0, `rgba(${e.rgb},${0.34 * fade})`);
+      g.addColorStop(1, `rgba(${e.rgb},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (e.type === 'leaf') {
+      ctx.globalAlpha = fade;
+      for (const p of e.parts) {
+        ctx.save();
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillStyle = p.col;
+        ctx.beginPath(); ctx.ellipse(0, 0, p.r, p.r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
       }
     } else if (e.type === 'ring') {
       const r = e.r0 + (e.r1 - e.r0) * easeOut(k);

@@ -1126,7 +1126,18 @@ export function render(ctx, g, view, mouse, t, opts) {
     for (const tile of g.board.values()) {
       if (!tile.townSize || tile.corrupt) continue;
       const p = hexToPixel(tile.q, tile.r, size);
-      drawTownLights(ctx, ox + p.x, oy + p.y, size, tile, t, night);
+      const lx = ox + p.x, ly = oy + p.y;
+      // Bloom: the settlement radiates a soft warm halo, not just lit windows.
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const tier = townTier(tile.townSize);
+      const hr = size * (1.3 + tier * 0.25);
+      const hg = ctx.createRadialGradient(lx, ly, size * 0.1, lx, ly, hr);
+      hg.addColorStop(0, `rgba(255,178,84,${(0.14 + tier * 0.05) * night})`);
+      hg.addColorStop(1, 'rgba(255,178,84,0)');
+      ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(lx, ly, hr, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      drawTownLights(ctx, lx, ly, size, tile, t, night);
     }
     ctx.restore();
   }
@@ -1194,6 +1205,9 @@ export function render(ctx, g, view, mouse, t, opts) {
 
   // True-perspective keystone: warp the finished board so distant rows converge.
   if (PERSP_K > 0) applyPerspectiveWarp(ctx, ox, oy);
+
+  // Cinematic finish: time-of-day colour grade + tilt-shift miniature blur.
+  applyCinematic(ctx, oy, dayLight, night, settings.dayNight ? dayCycle(t).warmth : 0);
 
   if (bgMode) return;
   if (!g.gameOver) {
@@ -1315,9 +1329,10 @@ function drawFireFx(ctx, cx, cy, size, t, seed) {
   ctx.save();
   hexPathLocal(ctx, cx, cy, size); ctx.clip();
   const pulse = 0.55 + 0.25 * Math.sin(t / 110 + r1 * 9);
+  ctx.globalCompositeOperation = 'lighter';                  // luminous, not painted
   const g = ctx.createRadialGradient(cx, cy, size * 0.1, cx, cy, size);
   g.addColorStop(0, `rgba(255,140,40,${0.38 * pulse})`);
-  g.addColorStop(1, 'rgba(120,30,0,0.18)');
+  g.addColorStop(1, 'rgba(120,30,0,0)');
   ctx.fillStyle = g; ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
   ctx.restore();
   for (let i = 0; i < 3; i++) {
@@ -1505,6 +1520,44 @@ function drawControlButtons(ctx, mouse) {
     ctx.fillText(k === 'rotate' ? 'ROTATE' : 'SKIP', cxp, b.y + b.h - 7);
   }
   ctx.textAlign = 'left';
+}
+
+// ---- cinematic post: time-of-day colour grade + tilt-shift miniature blur ----
+// One snapshot of the finished board is re-drawn in horizontal bands: the
+// middle stays sharp while the top/bottom bands blur (the classic miniature-
+// photography trick — amplifies the pop-up-diorama look), and every band gets
+// a colour grade tuned to the time of day (rich noon, honey dusk, cool night).
+function applyCinematic(ctx, oy, dayLight, night, warmth) {
+  const cv = ctx.canvas;
+  const lay = getBoardLayer(cv.width, cv.height);
+  const lc = lay.getContext('2d');
+  lc.setTransform(1, 0, 0, 1, 0, 0);
+  lc.clearRect(0, 0, cv.width, cv.height);
+  lc.drawImage(cv, 0, 0);
+  const sat = Math.max(0.8, 1.08 + 0.12 * dayLight - 0.28 * night).toFixed(3);
+  const bri = (1 - 0.04 * night).toFixed(3);
+  const grade = `saturate(${sat}) contrast(1.06) brightness(${bri})`;
+  const fT = Math.max(40, Math.min(H * 0.45, oy - 150));      // sharp-focus band
+  const fB = Math.min(H - 24, Math.max(H * 0.55, oy + 170));
+  const bands = [
+    { y0: 0, y1: fT * 0.55, blur: 3 },
+    { y0: fT * 0.55, y1: fT, blur: 1.4 },
+    { y0: fT, y1: fB, blur: 0 },
+    { y0: fB, y1: fB + (H - fB) * 0.45, blur: 1.4 },
+    { y0: fB + (H - fB) * 0.45, y1: H, blur: 3 },
+  ];
+  for (const b of bands) {
+    if (b.y1 - b.y0 < 1) continue;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, b.y0, BOARD_AREA, b.y1 - b.y0); ctx.clip();
+    ctx.filter = b.blur ? `${grade} blur(${b.blur}px)` : grade;
+    ctx.drawImage(lay, 0, 0, cv.width, cv.height, 0, 0, W, H);
+    ctx.restore();
+  }
+  ctx.filter = 'none';
+  // warm dusk glow / cool moonlight tint over the grade
+  if (warmth > 0.1) { ctx.save(); ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = `rgba(255,166,80,${0.5 * warmth})`; ctx.fillRect(0, 0, BOARD_AREA, H); ctx.restore(); }
+  if (night > 0.1) { ctx.save(); ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = `rgba(70,110,210,${0.4 * night})`; ctx.fillRect(0, 0, BOARD_AREA, H); ctx.restore(); }
 }
 
 // Small vector icons for the HUD, so sections read at a glance instead of
