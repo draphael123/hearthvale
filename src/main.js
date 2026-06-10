@@ -5,7 +5,7 @@ import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
   renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, renderVisit, visitHit, setRenderScale, setUiScale, setTouchMode,
-  pauseBtnHit, muteHit, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
+  pauseBtnHit, muteHit, renderTutOverlay, tutOverlayHit, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
 import { START_OPTIONS } from './tiles.js';
 import { loadSave, saveRun, paletteFor, todayYmd, persist, THEMES } from './meta.js';
 import { setRng } from './tiles.js';
@@ -137,6 +137,33 @@ async function decodeVale(s) {
 const TUT_SEEN = 'hearthvale.tutseen.v1';
 function seenTutorial() { try { return !!localStorage.getItem(TUT_SEEN); } catch (e) { return true; } }
 function markTutorialSeen() { try { localStorage.setItem(TUT_SEEN, '1'); } catch (e) { /* ignore */ } }
+
+// ---- Interactive guided tutorial: the game asks for ONE action and only
+// advances when the player actually performs it. ----
+let tut = null;   // { step } while the guided vale runs
+const GUIDE_STEPS = [
+  { lines: ['Welcome to Hearthvale! Tap a glowing', 'slot to place your first tile.'], place: () => true },
+  { lines: ['Edges score when they match. Rotate your', 'tile — R, Space, or the rotate button.'], on: 'rotate' },
+  { lines: ['Now place it so at least one edge matches.', 'Green ticks show where edges agree.'], place: (res) => res.matches > 0 },
+  { lines: ['Wrong tile for the moment? Stash it:', 'press H or tap the HOLD slot in the panel.'], on: 'hold' },
+  { lines: ['You can skip a tile entirely —', 'S or the skip button (skips are limited).'], on: 'skip' },
+  { lines: ['That’s the heart of it. Decrees, weather, fire', 'and your hearthfolk introduce themselves as', 'you play — the Field Guide waits in pause.'], done: true },
+];
+function tutEvent(kind, res) {
+  if (!tut) return;
+  const st = GUIDE_STEPS[tut.step];
+  if (!st || st.done) return;
+  if ((st.on === kind) || (kind === 'place' && st.place && res && st.place(res))) {
+    tut.step++;
+    audio.bell(0.12);
+  }
+}
+function endGuide() { tut = null; markTutorialSeen(); }
+function startGuidedTutorial() {
+  startRun(false, 'calm', null, null);
+  g.gentleStart = true;            // the wilds stay quiet during the guide
+  tut = { step: 0 };
+}
 function saveRunState() {
   if (g.gameOver) { clearRunState(); return; }
   try { localStorage.setItem(RUN_KEY, JSON.stringify({ data: serialize(g), daily: view.daily })); } catch (e) { /* ignore */ }
@@ -147,6 +174,7 @@ function resumeRun() {
   if (!blob || !blob.data || blob.data.gameOver) { clearRunState(); startRun(false); return; }
   setRng(Math.random);
   g = deserialize(blob.data);
+  tut = null;
   g.mode = g.mode || (settings.corruption !== false ? 'warden' : 'calm');
   g.endless = g.mode === 'zen';
   g.corruptionOn = g.mode === 'warden';
@@ -186,6 +214,7 @@ function startRun(daily, mode, startEdges, paletteOverride) {
   view.runStartBest = save.best || 0;
   view.daily = !!daily;
   view.copied = false;
+  tut = null;                      // leaving/replacing a run ends any guide
   clearRunState();
   fx.reset();
   // The vale remembers: last run's first landmark endures as an ancestral
@@ -237,6 +266,7 @@ function tryPlace() {
   let sound = null, soundPri = -1;
   const wantSound = (pri, fn) => { if (pri > soundPri) { soundPri = pri; sound = fn; } };
 
+  tutEvent('place', res);
   if (g.gameOver) finishRun();   // before achievements so best-score ones see it
   const newly = checkAchievements(g, save);
   if (newly.length) { persist(save); banners.push([100, '★ ' + newly[0].name, '#ffd766']); wantSound(60, () => audio.bell(0.16)); }
@@ -419,9 +449,9 @@ canvas.addEventListener('pointerup', (e) => {
     if (hit) {
       startAudio(); audio.click();
       if (hit === 'continue') resumeRun();
-      else if (hit === 'howto') { tutorialIdx = 0; screen = 'tutorial'; }
+      else if (hit === 'howto') { startGuidedTutorial(); }
       else if (hit === 'newgame') {
-        if (!seenTutorial() && !(view.save.runs > 0)) { tutorialIdx = 0; screen = 'tutorial'; }
+        if (!seenTutorial() && !(view.save.runs > 0)) startGuidedTutorial();
         else screen = 'modesel';
       }
       else if (hit === 'daily') startRun(true);
@@ -504,6 +534,7 @@ canvas.addEventListener('pointerup', (e) => {
       }).then(() => fx.toast('Postcard copied!', 'send the link — friends can tour your living vale', '#e0b66f'))
         .catch(() => fx.toast('Could not copy', 'your browser blocked the clipboard — try again', '#b05a4a'));
     }
+    else if (hit === 'guide') { tutorialIdx = 0; screen = 'tutorial'; }
     else if (hit === 'settings') screen = 'settings';
     else if (hit === 'new') restart();
     else if (hit === 'title') screen = 'title';
@@ -526,13 +557,19 @@ canvas.addEventListener('pointerup', (e) => {
     }
     restart();
   } else {
+    // Guided tutorial overlay: skip ✕ / final Continue.
+    if (tut) {
+      const st = GUIDE_STEPS[Math.min(tut.step, GUIDE_STEPS.length - 1)];
+      const th = tutOverlayHit(mouse.x, mouse.y, !!st.done);
+      if (th) { endGuide(); audio.click(); return; }
+    }
     if (pauseBtnHit(mouse.x, mouse.y)) { pauseT = lastFrameT; screen = 'pause'; audio.click(); return; }
     if (muteHit(mouse.x, mouse.y)) { audio.toggleMute(); return; }
     const zh = zoomHit(mouse.x, mouse.y);
     if (zh) { view.size = Math.max(22, Math.min(60, view.size * (zh === 'zin' ? 1.18 : 0.85))); audio.click(); return; }
     const ch = g.current && controlHit(mouse.x, mouse.y);
-    if (ch === 'rotate') { view.torchMode = false; rotateCW(g); audio.rotate(); return; }
-    if (ch === 'skip') { view.torchMode = false; if (skipTile(g)) { audio.skip(); saveRunState(); } return; }
+    if (ch === 'rotate') { view.torchMode = false; rotateCW(g); audio.rotate(); tutEvent('rotate'); return; }
+    if (ch === 'skip') { view.torchMode = false; if (skipTile(g)) { audio.skip(); tutEvent('skip'); saveRunState(); } return; }
     if (ch === 'torch') {
       view.harvestMode = false;
       if ((g.torches || 0) > 0) { view.torchMode = !view.torchMode; audio.click(); }
@@ -570,7 +607,7 @@ canvas.addEventListener('pointerup', (e) => {
     }
     const hr = holdSlotRect();
     if (hr && mouse.x >= hr.x && mouse.x <= hr.x + hr.w && mouse.y >= hr.y && mouse.y <= hr.y + hr.h) {
-      if (hold(g)) { audio.rotate(); saveRunState(); }
+      if (hold(g)) { audio.rotate(); tutEvent('hold'); saveRunState(); }
       return;
     }
     tryPlace();
@@ -579,7 +616,7 @@ canvas.addEventListener('pointerup', (e) => {
 
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  if (screen === 'play') { rotateCW(g); audio.rotate(); }
+  if (screen === 'play') { rotateCW(g); audio.rotate(); tutEvent('rotate'); }
 });
 
 // Wheel to zoom around the board.
@@ -595,11 +632,11 @@ window.addEventListener('keydown', (e) => {
   startAudio();
   if (e.key === 'r' || e.key === 'R' || e.key === ' ') {
     e.preventDefault();
-    if (screen === 'play' && g.current) { rotateCW(g); audio.rotate(); }
+    if (screen === 'play' && g.current) { rotateCW(g); audio.rotate(); tutEvent('rotate'); }
   } else if (e.key === 's' || e.key === 'S') {
-    if (skipTile(g)) audio.skip();
+    if (skipTile(g)) { audio.skip(); tutEvent('skip'); }
   } else if (e.key === 'h' || e.key === 'H') {
-    if (screen === 'play' && hold(g)) { audio.rotate(); saveRunState(); }
+    if (screen === 'play' && hold(g)) { audio.rotate(); tutEvent('hold'); saveRunState(); }
   } else if (e.key === 'f' || e.key === 'F') {
     if (screen === 'play' && (g.torches || 0) > 0) { view.harvestMode = false; view.torchMode = !view.torchMode; audio.click(); }
   } else if (e.key === 'g' || e.key === 'G') {
@@ -665,6 +702,10 @@ function frame(t) {
     } else {
       const rt = (screen === 'pause' || screen === 'settings') ? pauseT : t;
       render(ctx, g, view, mouse, rt);
+      if (tut && screen === 'play') {
+        const st = GUIDE_STEPS[Math.min(tut.step, GUIDE_STEPS.length - 1)];
+        renderTutOverlay(ctx, tut.step, GUIDE_STEPS.length - 1, st.lines, !!st.done, mouse, t);
+      }
       if (screen === 'pause') drawPauseMenu(ctx, mouse);
       else if (screen === 'settings') drawSettingsMenu(ctx, mouse);
     }
@@ -706,11 +747,22 @@ window.__hv = {
     else if (screen === 'music') renderMusic(ctx, view, mouse, t);
     else if (screen === 'visit' && visitG) renderVisit(ctx, visitG, view, mouse, t);
     else if (screen === 'tutorial') renderTutorial(ctx, tutorialIdx, mouse, t);
-    else { render(ctx, g, view, mouse, t); if (screen === 'pause') drawPauseMenu(ctx, mouse); else if (screen === 'settings') drawSettingsMenu(ctx, mouse); }
+    else {
+      render(ctx, g, view, mouse, t);
+      if (tut && screen === 'play') {
+        const st = GUIDE_STEPS[Math.min(tut.step, GUIDE_STEPS.length - 1)];
+        renderTutOverlay(ctx, tut.step, GUIDE_STEPS.length - 1, st.lines, !!st.done, mouse, t);
+      }
+      if (screen === 'pause') drawPauseMenu(ctx, mouse);
+      else if (screen === 'settings') drawSettingsMenu(ctx, mouse);
+    }
   },
   setDraft: (m) => { pendingMode = m || 'warden'; screen = 'draft'; },
   setTutorial: (i) => { tutorialIdx = i; screen = 'tutorial'; },
   encodeVale, decodeVale,
   setVisit: (vg) => { visitG = vg; screen = 'visit'; },
+  startGuide: startGuidedTutorial,
+  tutState: () => tut,
+  endGuide,
   hasSavedRun, resumeRun, saveRunState,
 };

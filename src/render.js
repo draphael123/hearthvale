@@ -2628,6 +2628,47 @@ export function renderMusic(ctx, view, mouse, t) {
   ctx.textAlign = 'left';
 }
 
+// ---- Interactive guided tutorial overlay (do the thing → advance) ----
+// A prompt card sits bottom-center of the board during the guided vale; it
+// names ONE action and the game advances only when the player performs it.
+function tutOverlayRects(done) {
+  const w = 440, x = (BOARD_W - w) / 2;
+  const h = done ? 118 : 84;
+  const y = H - h - 14;
+  const r = { card: { x, y, w, h } };
+  r.skip = { x: x + w - 32, y: y + 6, w: 26, h: 26 };
+  if (done) r.continue = { x: x + (w - 220) / 2, y: y + h - 48, w: 220, h: 38, label: 'Begin your story ▸', accent: '#4a9a3f', fs: 16 };
+  return r;
+}
+export function tutOverlayHit(x, y, done) {
+  const r = tutOverlayRects(done);
+  if (x >= r.skip.x && x <= r.skip.x + r.skip.w && y >= r.skip.y && y <= r.skip.y + r.skip.h) return 'skip';
+  if (r.continue && x >= r.continue.x && x <= r.continue.x + r.continue.w && y >= r.continue.y && y <= r.continue.y + r.continue.h) return 'continue';
+  return null;
+}
+export function renderTutOverlay(ctx, step, total, lines, done, mouse, t) {
+  const r = tutOverlayRects(done);
+  const c = r.card;
+  ctx.save();
+  roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+  ctx.fillStyle = 'rgba(14,22,16,0.93)'; ctx.fill();
+  roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+  ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,214,102,${0.45 + 0.25 * Math.sin(t / 400)})`; ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#cdb24a'; ctx.font = '800 10px Nunito, sans-serif';
+  ctx.fillText(done ? 'GUIDE COMPLETE' : `GUIDE · STEP ${step + 1} OF ${total}`, c.x + c.w / 2, c.y + 18);
+  ctx.fillStyle = '#f3ead0'; ctx.font = '14px Nunito, sans-serif';
+  lines.forEach((l, i) => ctx.fillText(l, c.x + c.w / 2, c.y + 38 + i * 18));
+  // skip ✕
+  const sk = r.skip;
+  const hov = mouse && mouse.x >= sk.x && mouse.x <= sk.x + sk.w && mouse.y >= sk.y && mouse.y <= sk.y + sk.h;
+  ctx.fillStyle = hov ? '#e6ddc6' : '#7e9277'; ctx.font = 'bold 15px Nunito, sans-serif';
+  ctx.fillText('✕', sk.x + sk.w / 2, sk.y + sk.h / 2 + 5);
+  if (done && r.continue) titleButton(ctx, r.continue, mouse);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
 // ---- How-to-Play tutorial (click-through cards) ----
 const TUT = [
   { title: 'Welcome to Hearthvale', body: ['Place hexagonal tiles to grow a living vale —', 'forests, rivers, farms and towns that breathe,', 'lit by a moving sun through day and night.', '', 'This guide walks through every mechanic.'], art: 'tile' },
@@ -2820,8 +2861,8 @@ function menuBtn(ctx, r, mouse) {
 }
 
 function pauseButtonRects() {
-  const c = menuCard(348), bw = c.w - 48, x = c.x + 24, gap = 48;
-  const defs = [['resume', 'Resume', '#4a8a3f'], ['share', '📤 Share my Vale', '#e0b66f'], ['settings', 'Settings', '#6f8ac0'], ['new', 'New Vale', '#9d5bd0'], ['title', 'Quit to Title', '#b05a4a']];
+  const c = menuCard(396), bw = c.w - 48, x = c.x + 24, gap = 48;
+  const defs = [['resume', 'Resume', '#4a8a3f'], ['share', '📤 Share my Vale', '#e0b66f'], ['guide', 'Field Guide', '#6fa8c0'], ['settings', 'Settings', '#6f8ac0'], ['new', 'New Vale', '#9d5bd0'], ['title', 'Quit to Title', '#b05a4a']];
   return defs.map(([k, label, accent], i) => ({ k, label, accent, x, y: c.y + 70 + i * gap, w: bw, h: 38 }));
 }
 export function pauseHit(x, y) {
@@ -2829,7 +2870,7 @@ export function pauseHit(x, y) {
   return null;
 }
 export function drawPauseMenu(ctx, mouse) {
-  menuOverlay(ctx, menuCard(348), 'Paused');
+  menuOverlay(ctx, menuCard(396), 'Paused');
   for (const b of pauseButtonRects()) menuBtn(ctx, b, mouse);
   ctx.textAlign = 'left';
 }
