@@ -1922,6 +1922,25 @@ function drawGameOver(ctx, g, view, t) {
   }
   y += Math.ceil(stats.length / 2) * rowH + 8;
 
+  // The story of your vale — what the living world did this run.
+  {
+    const st = g.stats || {};
+    const story = [];
+    if (st.growth) story.push(`Your rivers fed the farms — +${st.growth} grown`);
+    if (st.fires) story.push(`${st.fires} wildfire${st.fires > 1 ? 's' : ''} · ${st.doused || 0} doused · ${st.burned || 0} tile${(st.burned || 0) === 1 ? '' : 's'} burnt`);
+    if (st.floods) story.push(`${st.floods} field${st.floods > 1 ? 's' : ''} flooded · rich silt claimed +${st.silt || 0}`);
+    if (st.pruned) story.push(`${st.pruned} bramble patch${st.pruned > 1 ? 'es' : ''} pruned back`);
+    if (story.length) {
+      ctx.textAlign = 'center';
+      panelDivider(ctx, cardX + 60, y - 10, cw - 120);
+      ctx.fillStyle = '#b9a86b'; ctx.font = '700 11px Nunito, sans-serif';
+      ctx.fillText('THE STORY OF YOUR VALE', cx, y + 4); y += 20;
+      ctx.fillStyle = '#cdd9c2'; ctx.font = 'italic 13px Nunito, sans-serif';
+      for (const line of story.slice(0, 3)) { ctx.fillText(line, cx, y); y += 17; }
+      y += 4;
+    }
+  }
+
   // Biome unlocks earned this run.
   const newUnlocks = UNLOCKS.filter(u => g.score >= u.score && u.score > prevBest);
   ctx.textAlign = 'center';
@@ -1954,7 +1973,7 @@ function drawGameOver(ctx, g, view, t) {
   ctx.textAlign = 'left';
 }
 
-const GO_CW = 470, GO_CH = 436;
+const GO_CW = 470, GO_CH = 472;
 
 // Rect of the daily "copy result" button on the summary card.
 export function copyButtonRect() {
@@ -2384,8 +2403,11 @@ const TUT = [
   { title: '4 · Decrees', body: ['Some tiles raise a Decree — a little flag', 'with a goal (e.g. "grow this forest to 5").', 'Reach it for a big bonus AND extra tiles,', 'so fulfilling decrees keeps your run going.'], art: 'decree' },
   { title: '5 · Towns & prosperity', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town with a', 'church and lit windows. Give a town food,', 'water & wood nearby and it prospers (★);', 'reach the coast for a port (⚓).'], art: 'town' },
   { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — and winter freezes the rivers', 'and blankets the land in snow.'], art: 'seasons' },
-  { title: '7 · The Blight & the Wardens', body: ['In Warden mode, a Blightheart rises and', 'corruption spreads from it (−points).', 'Wall it off with water / mountain / coast,', 'cleanse with fae tiles, and build a Wardtower —', 'its aura purges the heart over a few turns.'], art: 'blight' },
-  { title: '8 · Choose your way', body: ['Calm — cozy, no blight', 'Zen — endless, no game-over, just build', 'Warden — defend against the blight', 'Themed — fixed palettes (Isles / Wildwood…)', 'Daily — one seeded board for everyone.'], art: 'modes' },
+  { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
+  { title: '8 · The living valley', body: ['Rivers water the farms beside them, and', 'watered farms yield a little every turn.', 'Receded floods leave rich silt; big wild', 'woods sprout brambles into your farmland.', 'Build beside silt or brambles to claim & prune.'], art: 'living' },
+  { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside.'], art: 'fire' },
+  { title: '10 · The Blight & the Wardens', body: ['In Warden mode, a Blightheart rises and', 'corruption spreads from it (−points).', 'Wall it off with water / mountain / coast,', 'cleanse with fae tiles, and build a Wardtower —', 'its aura purges the heart over a few turns.'], art: 'blight' },
+  { title: '11 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },
   { title: 'Go grow a vale', body: ['That’s everything! Fulfil decrees for more', 'tiles, raise towns, and watch the world come', 'to life around you.', '', 'Press Play and lay your first tile.'], art: 'tile' },
 ];
 
@@ -2461,6 +2483,29 @@ function drawTutArt(ctx, art, cx, cy, t) {
     const pills = [['Calm', '#4a9a3f'], ['Zen', '#2fa6b8'], ['Warden', '#b24bcf']];
     const pw = 116; ctx.textAlign = 'center';
     pills.forEach(([n, c], i) => { const x = cx - pw * 1.08 + i * pw * 1.04; roundRect(ctx, x - pw / 2, cy - 17, pw, 34, 17); ctx.fillStyle = hexToRgba(c, 0.4); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = c; ctx.stroke(); ctx.fillStyle = '#fff7e0'; ctx.font = 'bold 16px Nunito, sans-serif'; ctx.fillText(n, x, cy + 6); });
+  } else if (art === 'weather') {
+    const items = [['sun', '#ffcf5e', 'Harvest Sun'], ['rain', '#8fd0e0', 'Downpour'], ['snow', '#cfe0ee', 'Cold Snap']];
+    ctx.textAlign = 'center';
+    items.forEach(([icon, col, name], i) => {
+      const x = cx + (i - 1) * 130;
+      panelIcon(ctx, x, cy - 8, 26, icon, col);
+      ctx.fillStyle = col; ctx.font = '700 12px Nunito, sans-serif'; ctx.fillText(name, x, cy + 30);
+    });
+  } else if (art === 'living') {
+    const items = [['rain', '#8fd0e0', 'rivers water'], ['sprout', '#9bd86b', 'farms yield'], ['leaf', '#7aa05a', 'wild creeps']];
+    ctx.textAlign = 'center';
+    items.forEach(([icon, col, name], i) => {
+      const x = cx + (i - 1) * 130;
+      panelIcon(ctx, x, cy - 8, 26, icon, col);
+      ctx.fillStyle = col; ctx.font = '700 12px Nunito, sans-serif'; ctx.fillText(name, x, cy + 30);
+    });
+  } else if (art === 'fire') {
+    panelIcon(ctx, cx - 80, cy - 8, 30, 'flame', '#ff9a4d');
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#9fb094'; ctx.font = '700 20px Nunito, sans-serif'; ctx.fillText('vs', cx, cy - 2);
+    panelIcon(ctx, cx + 80, cy - 8, 30, 'rain', '#8fd0e0');
+    ctx.fillStyle = '#ff9a4d'; ctx.font = '700 12px Nunito, sans-serif'; ctx.fillText('spreads in drought', cx - 80, cy + 30);
+    ctx.fillStyle = '#8fd0e0'; ctx.fillText('rain & rivers douse', cx + 80, cy + 30);
   }
 }
 

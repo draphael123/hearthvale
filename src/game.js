@@ -118,7 +118,7 @@ export function serialize(g) {
     blighthearts: g.blighthearts || [], lastHeartAt: g.lastHeartAt || 0,
     cleansedTotal: g.cleansedTotal || 0, heartsPurged: g.heartsPurged || 0, mode: g.mode,
     held: g.held || null, heldUsed: !!g.heldUsed, endless: !!g.endless, journeyIdx: g.journeyIdx || 0,
-    weatherOn: g.weatherOn !== false, weather: g.weather || null,
+    weatherOn: g.weatherOn !== false, weather: g.weather || null, stats: g.stats || {},
     current: g.current, stack: g.stack, quests: g.quests,
     board: [...g.board.values()],
   };
@@ -139,7 +139,7 @@ export function deserialize(d) {
     blighthearts: d.blighthearts || [], lastHeartAt: d.lastHeartAt || 0,
     cleansedTotal: d.cleansedTotal || 0, heartsPurged: d.heartsPurged || 0, mode: d.mode || 'warden',
     held: d.held || null, heldUsed: !!d.heldUsed, endless: !!d.endless, journeyIdx: d.journeyIdx || 0,
-    weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 },
+    weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 }, stats: d.stats || {},
   };
 }
 
@@ -331,7 +331,8 @@ function advanceFlood(g) {
       if (nb && !nb.flooded && !nb.corrupt && !nb.burning && !nb.edges.includes('water') && tileElev(nb) <= 0.12) opts.push(nb);
     }
     if (opts.length) { opts[(Math.random() * opts.length) | 0].flooded = true; out.flooded++; }
-  }
+    if (out.flooded >= 2) break;   // cap per placement — sim showed water-heavy
+  }                                // palettes (Journey) drowning 20+ tiles a run
   return out;
 }
 
@@ -371,9 +372,10 @@ function scoreMatches(matchedEdges, edges, season, weather) {
     if ((season === 3 || wt === 'frost') && e === 'water') { frozen++; continue; }
     base += 10;
     if (e === favor) seasonBonus += 5;                            // seasonal bounty
-    // Weather fronts add ~+50% to their favoured terrain (base is 10/edge).
-    if (wt === 'sun' && (e === 'field' || e === 'orchard')) weatherBonus += 5;
-    else if (wt === 'rain' && (e === 'water' || e === 'coast' || e === 'marsh')) weatherBonus += 5;
+    // Weather fronts nearly double their favoured terrain (base is 10/edge) —
+    // tuned up from +5 after simulation showed +5 was invisible vs combos.
+    if (wt === 'sun' && (e === 'field' || e === 'orchard')) weatherBonus += 8;
+    else if (wt === 'rain' && (e === 'water' || e === 'coast' || e === 'marsh')) weatherBonus += 8;
   }
   return { base, seasonBonus, frozen, weatherBonus };
 }
@@ -549,7 +551,7 @@ export function place(g, q, r) {
     blight = spreadCorruption(g, k);
     purge = purgeHearts(g);
     wardOffered = maybeOfferWardtower(g);
-    points += cleansed * 10 - blight.newCount * 8 + purge.purged * 60;
+    points += cleansed * 10 - blight.newCount * 14 + purge.purged * 60;   // corruption stings (sim: warden out-scored calm)
     if (cleansed) g.cleansedTotal = (g.cleansedTotal || 0) + cleansed;
     if (purge.purged) g.heartsPurged = (g.heartsPurged || 0) + purge.purged;
   }
@@ -583,23 +585,24 @@ export function place(g, q, r) {
       const nb = g.board.get(key(n.q, n.r));
       if (!nb) continue;
       if (wetPlaced && nb.burning) { nb.burning = 0; fire.doused++; }
-      if (nb.ash) { nb.ash = false; ashBonus += 5; }            // new growth on burnt land
-      if (nb.floodplain) { nb.floodplain = false; siltBonus += 6; }   // rich silt claimed
+      if (nb.ash) { nb.ash = false; ashBonus += 12; }           // new growth on burnt land
+      if (nb.floodplain) { nb.floodplain = false; siltBonus += 15; }  // rich silt claimed
       if (nb.overgrown) { nb.overgrown = false; pruned++; }     // brambles pruned back
     }
-    points += fire.doused * 10 + ashBonus + siltBonus + pruned * 6;
+    // Counterplay pays well (sim showed small rewards vanish vs combos).
+    points += fire.doused * 25 + ashBonus + siltBonus + pruned * 15;
     const adv = advanceFire(g);
     fire.ignited = adv.ignited; fire.spread += adv.spread; fire.burnedOut = adv.burnedOut;
     fire.doused += adv.doused; fire.started = adv.started;
-    points -= (fire.ignited + fire.spread) * 8;                 // burning land hurts
+    points -= (fire.ignited + fire.spread) * 10;                // burning land hurts
   }
 
   // Flood swells during a Downpour and recedes after; the wild creeps into
   // tame land beside big unmanaged woods.
   const flood = advanceFlood(g);
-  points -= flood.flooded * 5;
+  points -= flood.flooded * 6;
   const over = advanceOvergrowth(g);
-  points -= over.grew * 4;
+  points -= over.grew * 8;
 
   // Living valley: rivers water adjacent farms — the land yields a little
   // growth on its own each placement (the fields sleep while frozen).
@@ -625,6 +628,18 @@ export function place(g, q, r) {
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
     flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
   };
+
+  // Run chronicle: cumulative totals for the game-over "story of your vale".
+  const st = g.stats || (g.stats = {});
+  st.growth = (st.growth || 0) + growth;
+  st.perfects = (st.perfects || 0) + (evalRes.perfect ? 1 : 0);
+  st.decrees = (st.decrees || 0) + completed.length;
+  st.fires = (st.fires || 0) + (fire.started ? 1 : 0);
+  st.doused = (st.doused || 0) + fire.doused;
+  st.burned = (st.burned || 0) + fire.burnedOut;
+  st.floods = (st.floods || 0) + flood.flooded;
+  st.silt = (st.silt || 0) + siltBonus;
+  st.pruned = (st.pruned || 0) + pruned;
 
   // Zen / endless mode: keep the stack topped up so the run never ends.
   if (g.endless && g.stack.length < 8) { for (let i = 0; i < 24; i++) g.stack.push(makeTile(g.palette)); }
