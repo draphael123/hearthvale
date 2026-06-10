@@ -1,6 +1,6 @@
 // Entry point: game loop, input, pan/zoom, and meta-save wiring.
 import { pixelToHex, hexToPixel, key } from './hex.js';
-import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE } from './game.js';
+import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER } from './game.js';
 import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
@@ -100,6 +100,7 @@ function resumeRun() {
   g.mode = g.mode || (settings.corruption !== false ? 'warden' : 'calm');
   g.endless = g.mode === 'zen';
   g.corruptionOn = g.mode === 'warden';
+  g.weatherOn = settings.weather !== false;
   view.panX = 0; view.panY = 0;
   view.savedThisRun = false;
   view.runStartBest = save.best || 0;
@@ -125,6 +126,7 @@ function startRun(daily, mode, startEdges, paletteOverride) {
   g.mode = m;
   g.endless = (m === 'zen' || m === 'journey');   // Zen + Journey never run out
   g.corruptionOn = m === 'warden';
+  g.weatherOn = settings.weather !== false;        // weather fronts follow the Weather setting
   view.mode = g.mode;
   view.startEdges = daily ? null : (startEdges || null);
   view.palette = paletteOverride || null;       // remember themed palette for replay
@@ -203,6 +205,20 @@ function tryPlace() {
   if (res.wardPlaced) { toasts.push([62, 'Wardtower raised', 'Its aura wards nearby tiles & grinds down hearts', '#bfe6ff']); wantSound(46, () => audio.bell(0.16)); }
   else if (res.wardOffered) toasts.push([55, 'A Wardtower joins your queue', 'Place it near a Blightheart', '#bfe6ff']);
   if (res.cleansed) { toasts.push([50, 'Blight cleansed', `${res.cleansed} tile${res.cleansed > 1 ? 's' : ''} purified · +${res.cleansed * 10}`, '#aef0c0']); wantSound(48, () => audio.cleanse()); }
+  if (res.weatherStarted) {
+    const w = WEATHER[res.weatherStarted];
+    const wcol = res.weatherStarted === 'sun' ? '#ffd766' : res.weatherStarted === 'rain' ? '#8fd0e0' : '#cfe0ee';
+    toasts.push([72, w.name + ' rolls in', w.note, wcol]);
+    wantSound(40, () => audio.bell(0.13));
+  }
+  if (res.fireStarted) {
+    banners.push([86, '🔥 Wildfire!', '#ff9a4d']);
+    toasts.push([86, 'Wildfire!', 'Rain douses it · water, marsh & mountains block it', '#ff9a4d']);
+    wantSound(78, () => audio.blight());
+  }
+  if (res.fireDoused) { toasts.push([60, 'Fire doused', `the flames go out · +${res.fireDoused * 10}`, '#8fd0e0']); wantSound(47, () => audio.cleanse()); }
+  if (res.ashBonus) toasts.push([45, 'Fertile ash', `new growth on burnt land · +${res.ashBonus}`, '#d9b48a']);
+  if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
 
   // Teaching hints only fill a quiet moment — never compete with a real event.
   if (!toasts.length) { const h = pickHint(res); if (h) toasts.push([10, h.text, h.sub, h.color]); }

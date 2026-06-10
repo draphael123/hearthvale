@@ -1,7 +1,7 @@
 // All canvas drawing for Hearthvale.
 import { hexToPixel, hexCorner, key, neighbor } from './hex.js';
 import { TERRAIN, START_OPTIONS } from './tiles.js';
-import { currentEdges, openSlots, evaluate, refreshQuestProgress, upcoming, comboMult, townTier, regionTiles, compatible, previewScore, hexDist, journeyCurrent, JOURNEY } from './game.js';
+import { currentEdges, openSlots, evaluate, refreshQuestProgress, upcoming, comboMult, townTier, regionTiles, compatible, previewScore, hexDist, journeyCurrent, JOURNEY, weatherInfo } from './game.js';
 import { nextUnlock, UNLOCKS, dailyBestToday, recentRuns, todayYmd, THEMES } from './meta.js';
 import { ACHIEVEMENTS, achievementCount } from './achievements.js';
 import { drawTile, drawTileBase, drawStructures, drawFoliage, drawLife, drawTownLights, drawNightFireflies, hashCoord, setSun } from './art.js';
@@ -164,10 +164,10 @@ function drawTileSide(ctx, cx, cy, size, depth, light = 1, sunX = 0.3) {
 // Per-edge terrain elevation → a tile's vertical lift (mountains rise, water
 // sinks), so the land undulates in 3D. The hex footprint is unchanged, so
 // placement / picking are unaffected.
-const ELEV = { mountain: 1.0, ruins: 0.55, fae: 0.45, forest: 0.38, orchard: 0.32, village: 0.26, moor: 0.16, field: 0.1, marsh: -0.26, coast: -0.34, water: -0.5 };
+const ELEV = { mountain: 0.95, ruins: 0.5, fae: 0.42, forest: 0.34, orchard: 0.3, village: 0.24, moor: 0.16, field: 0.12, marsh: -0.16, coast: -0.2, water: -0.3 };
 function tileLift(edges, size) {
   let s = 0; for (let i = 0; i < 6; i++) s += (ELEV[edges[i]] || 0);
-  return (s / 6) * size * 0.62;
+  return (s / 6) * size * 0.5;
 }
 
 // Ambient-occlusion: a soft inner shadow around a tile's perimeter so each piece
@@ -973,6 +973,24 @@ export function render(ctx, g, view, mouse, t, opts) {
   // the tile in front — the trick that makes a flat board look 3D.
   const ordered = [...g.board.values()].sort((a, b) => (a.r - b.r) || (a.q - b.q));
 
+  // Smooth each tile's elevation against its neighbours (2 relaxation passes)
+  // so the land slopes gently instead of stepping into hard cliffs where tiles
+  // of different terrain meet. Footprint is unchanged, so picking is unaffected.
+  const HEXN = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+  let liftMap = new Map();
+  for (const tile of ordered) liftMap.set(key(tile.q, tile.r), tileLift(tile.edges, size));
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Map();
+    for (const tile of ordered) {
+      const kk = key(tile.q, tile.r);
+      let sum = liftMap.get(kk), n = 1;
+      for (const [dq, dr] of HEXN) { const v = liftMap.get(key(tile.q + dq, tile.r + dr)); if (v !== undefined) { sum += v; n++; } }
+      next.set(kk, liftMap.get(kk) * 0.45 + (sum / n) * 0.55);
+    }
+    liftMap = next;
+  }
+  const liftOf = (tile) => liftMap.get(key(tile.q, tile.r)) || 0;
+
   // ---- Begin tilted board space (foreshorten vertically around the layout
   // origin). All board-positioned draws below inherit the tilt; full-screen
   // washes are drawn outside it. BOARD_TILT=1 makes this a no-op (flat).
@@ -998,8 +1016,8 @@ export function render(ctx, g, view, mouse, t, opts) {
   // sun and grown by the tile's height, so mountains cast longer shadows.
   for (const tile of ordered) {
     const p = hexToPixel(tile.q, tile.r, size);
-    const lift = Math.max(0, tileLift(tile.edges, size));
-    const lf = lift / size;                              // 0..~0.6
+    const lift = Math.max(0, liftOf(tile));
+    const lf = lift / size;                              // 0..~0.5
     drawTileShadow(ctx, ox + p.x - hx * lf * size * 0.7, oy + p.y + depth / BOARD_TILT, size, 1 + lf * 0.9);
   }
 
@@ -1007,7 +1025,7 @@ export function render(ctx, g, view, mouse, t, opts) {
   for (const tile of ordered) {
     const p = hexToPixel(tile.q, tile.r, size);
     const cx = ox + p.x;
-    const lift = tileLift(tile.edges, size);             // terrain elevation (raises the top)
+    const lift = liftOf(tile);                           // neighbour-smoothed terrain elevation
     const cy = oy + p.y - lift;                          // raised top; footprint stays on the plane
     const tk = key(tile.q, tile.r);
     const sz = size * (fx.dropScale(tk) || 1) * fx.rippleScale(tk);
@@ -1033,6 +1051,9 @@ export function render(ctx, g, view, mouse, t, opts) {
     ctx.restore();
     if (tile.townSize && !tile.corrupt && !settings.reducedMotion) drawChimneySmoke(ctx, cx, cy, size, tile, seed, t);
     if (tile.corrupt) drawCorruption(ctx, cx, cy, size, tile, t);
+    if (tile.burning) drawFireFx(ctx, cx, cy, sz, t, seed);
+    else if (tile.ash) drawAshFx(ctx, cx, cy, sz, seed, t);
+    if (tile.irrigated && !tile.corrupt && !tile.burning && !settings.reducedMotion) drawIrrigationGlints(ctx, cx, cy, sz, t, seed);
     if (settings.symbols) drawTerrainSymbols(ctx, cx, cy, size, tile.edges);
     if (!tile.corrupt) drawProsperity(ctx, cx, cy, size, tile, t);
     const qd = g.quests.find(q => q.q === tile.q && q.r === tile.r);
@@ -1137,6 +1158,14 @@ export function render(ctx, g, view, mouse, t, opts) {
     const { warmth } = settings.dayNight ? dayCycle(t) : { warmth: 0 };
     if (warmth > 0.15) drawGodRays(ctx, warmth, t);
     drawWeather(ctx, t, season);
+    // Active weather front: a soft colour wash telegraphs the change.
+    const wt = g.weather && g.weather.type;
+    if (wt) {
+      const col = wt === 'sun' ? '255,206,118' : wt === 'rain' ? '116,166,200' : '178,204,236';
+      const vg = ctx.createRadialGradient(BOARD_AREA / 2, H / 2, H * 0.3, BOARD_AREA / 2, H / 2, H * 0.78);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${col},0.15)`);
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, BOARD_AREA, H);
+    }
   }
 
   // Warm glow creeps from the edges as the combo climbs.
@@ -1240,6 +1269,7 @@ function drawScoreBreakdown(ctx, px, py, bd) {
   if (bd.mult > 1) rows.push(['combo bonus', `×${bd.mult % 1 ? bd.mult.toFixed(1) : bd.mult}`, '#ff9a4d']);
   if (bd.estuaries) rows.push(['estuary', `+${bd.estuaryBonus}`, '#6fd6e0']);
   if (bd.seasonBonus) rows.push([`${bd.seasonFavor} (in season)`, `+${bd.seasonBonus}`, '#9bd86b']);
+  if (bd.weatherBonus) rows.push([bd.weatherName || 'weather front', `+${bd.weatherBonus}`, '#8fd0e0']);
   if (bd.frozen) rows.push(['frozen river', '+0', '#9fc0d6']);
   if (bd.landmark) rows.push([bd.landmark, `+${bd.landmarkBonus}`, '#b89bd8']);
   const w = 168, lh = 16, h = 14 + rows.length * lh + 26;
@@ -1272,6 +1302,60 @@ function drawFloatLabel(ctx, x, y, text, color) {
   ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+}
+
+// ---- wild forces & living-valley tile effects ----
+// Burning tile: licking flames, a warm pulsing glow, and rising smoke.
+function drawFireFx(ctx, cx, cy, size, t, seed) {
+  const r1 = (seed % 97) / 97, r2 = (seed % 53) / 53;
+  ctx.save();
+  hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  const pulse = 0.55 + 0.25 * Math.sin(t / 110 + r1 * 9);
+  const g = ctx.createRadialGradient(cx, cy, size * 0.1, cx, cy, size);
+  g.addColorStop(0, `rgba(255,140,40,${0.38 * pulse})`);
+  g.addColorStop(1, 'rgba(120,30,0,0.18)');
+  ctx.fillStyle = g; ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  ctx.restore();
+  for (let i = 0; i < 3; i++) {
+    const fx0 = cx + (i - 1) * size * 0.34 + Math.sin(t / 150 + i * 2 + r2 * 6) * size * 0.05;
+    const fy = cy + size * 0.18;
+    const h = size * (0.34 + 0.1 * Math.sin(t / 90 + i * 1.7 + r1 * 4));
+    ctx.fillStyle = 'rgba(255,120,30,0.85)';
+    ctx.beginPath(); ctx.moveTo(fx0 - size * 0.1, fy);
+    ctx.quadraticCurveTo(fx0 - size * 0.12, fy - h * 0.5, fx0, fy - h);
+    ctx.quadraticCurveTo(fx0 + size * 0.12, fy - h * 0.5, fx0 + size * 0.1, fy);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,120,0.9)';
+    ctx.beginPath(); ctx.moveTo(fx0 - size * 0.05, fy);
+    ctx.quadraticCurveTo(fx0, fy - h * 0.45, fx0 + size * 0.05, fy);
+    ctx.closePath(); ctx.fill();
+    const sp = ((t / 14 + i * 37 + (seed % 211)) % 90) / 90;   // smoke puff lifecycle
+    ctx.fillStyle = `rgba(70,60,58,${0.3 * (1 - sp)})`;
+    ctx.beginPath(); ctx.arc(fx0 + sp * size * 0.18, fy - h - sp * size * 0.7, size * (0.08 + sp * 0.12), 0, Math.PI * 2); ctx.fill();
+  }
+}
+// Burnt-out tile: a scorched wash with slowly fading embers.
+function drawAshFx(ctx, cx, cy, size, seed, t) {
+  ctx.save();
+  hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  ctx.fillStyle = 'rgba(28,22,20,0.58)';
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  for (let i = 0; i < 4; i++) {
+    const a = ((seed >> i) % 7) / 7 * Math.PI * 2, rr = size * (0.2 + ((seed >> (i + 2)) % 5) / 10);
+    const e = 0.25 + 0.2 * Math.sin(t / 300 + i * 2.1);
+    ctx.fillStyle = `rgba(255,110,40,${e})`;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.7, size * 0.035, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+// Irrigated farm: tiny water glints so you can see the river feeding it.
+function drawIrrigationGlints(ctx, cx, cy, size, t, seed) {
+  for (let i = 0; i < 2; i++) {
+    const a = ((seed >> (i * 3)) % 11) / 11 * Math.PI * 2, rr = size * 0.42;
+    const tw = 0.25 + 0.25 * Math.sin(t / 420 + i * 2.6 + (seed % 13));
+    ctx.fillStyle = `rgba(150,210,235,${tw})`;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.6, size * 0.045, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 // ---- On-screen zoom buttons (board corner; drawn after the perspective warp
@@ -1375,6 +1459,11 @@ function panelIcon(ctx, x, y, s, kind, col) {
     ctx.beginPath(); ctx.ellipse(0, 0, s * 0.24, s * 0.46, Math.PI / 4, 0, Math.PI * 2); ctx.fill();
   } else if (kind === 'snow') {
     for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3; ctx.beginPath(); ctx.moveTo(-Math.cos(a) * s * 0.5, -Math.sin(a) * s * 0.5); ctx.lineTo(Math.cos(a) * s * 0.5, Math.sin(a) * s * 0.5); ctx.stroke(); }
+  } else if (kind === 'rain') {
+    ctx.beginPath(); ctx.arc(-s * 0.16, -s * 0.06, s * 0.22, 0, Math.PI * 2); ctx.arc(s * 0.14, -s * 0.06, s * 0.26, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(-s * 0.38, -s * 0.12, s * 0.7, s * 0.2);
+    ctx.lineWidth = Math.max(1, s * 0.1);
+    ctx.beginPath(); ctx.moveTo(-s * 0.18, s * 0.2); ctx.lineTo(-s * 0.26, s * 0.42); ctx.moveTo(s * 0.14, s * 0.2); ctx.lineTo(s * 0.06, s * 0.42); ctx.stroke();
   } else if (kind === 'sprout') {
     ctx.beginPath(); ctx.moveTo(0, s * 0.5); ctx.lineTo(0, -s * 0.08); ctx.stroke();
     ctx.beginPath(); ctx.ellipse(-s * 0.18, -s * 0.18, s * 0.18, s * 0.1, Math.PI / 4, 0, Math.PI * 2); ctx.fill();
@@ -1432,6 +1521,44 @@ function drawPanel(ctx, g, view, t) {
   ctx.fillStyle = '#ffe08a'; ctx.font = '800 31px Nunito, sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(g.score.toLocaleString(), pad + 30, y + 4);
   y += 26;
+
+  // ---- Weather front (telegraphed; tweaks scoring for a few tiles) ----
+  const wf = weatherInfo(g);
+  if (wf) {
+    panelDivider(ctx, pad, y, barW); y += 16;
+    const wcol = wf.type === 'sun' ? '#ffcf5e' : wf.type === 'rain' ? '#8fd0e0' : '#cfe0ee';
+    panelHead(ctx, pad, y, wf.icon, wf.name.toUpperCase(), wcol);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#cdd9c2'; ctx.font = '800 11px Nunito, sans-serif';
+    ctx.fillText(wf.left + (wf.left === 1 ? ' tile' : ' tiles'), W - 16, y); ctx.textAlign = 'left';
+    y += 15;
+    ctx.fillStyle = '#9fb094'; ctx.font = '11px Nunito, sans-serif';
+    ctx.fillText(wf.note, pad, y); y += 16;
+  }
+
+  // ---- Living-valley growth (rivers water farms; they yield each tile) ----
+  let irrN = 0; for (const tt of g.board.values()) if (tt.irrigated) irrN++;
+  if (irrN > 0) {
+    const frozenW = seasonOf(g) === 3 || (wf && wf.type === 'frost');
+    const gpt = frozenW ? 0 : Math.min(10, Math.floor(irrN / 2));
+    panelHead(ctx, pad, y, 'sprout', 'GROWTH', '#9bd86b');
+    ctx.textAlign = 'right'; ctx.fillStyle = frozenW ? '#9fc0d6' : '#9bd86b'; ctx.font = '800 11px Nunito, sans-serif';
+    ctx.fillText(frozenW ? 'frozen' : '+' + gpt + ' / tile', W - 16, y); ctx.textAlign = 'left';
+    y += 14;
+    ctx.fillStyle = '#9fb094'; ctx.font = '11px Nunito, sans-serif';
+    ctx.fillText(irrN + ' farm' + (irrN > 1 ? 's' : '') + ' watered by rivers', pad, y); y += 16;
+  }
+
+  // ---- Wildfire warning ----
+  let burningN = 0; for (const tt of g.board.values()) if (tt.burning) burningN++;
+  if (burningN) {
+    panelDivider(ctx, pad, y, barW); y += 16;
+    const fp = 0.6 + 0.4 * Math.sin(t / 160);
+    panelHead(ctx, pad, y, 'flame', 'WILDFIRE', `rgba(255,140,50,${fp})`);
+    ctx.textAlign = 'right'; ctx.fillStyle = `rgba(255,160,80,${fp})`; ctx.font = '800 12px Nunito, sans-serif';
+    ctx.fillText(burningN + ' burning', W - 16, y); ctx.textAlign = 'left'; y += 15;
+    ctx.fillStyle = '#c0a08a'; ctx.font = '10px Nunito, sans-serif';
+    ctx.fillText('Place water beside flames · rain douses all', pad, y); y += 16;
+  }
 
   // ---- Journey objective ----
   if (g.mode === 'journey') {

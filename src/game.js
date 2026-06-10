@@ -34,6 +34,8 @@ export function newGame(palette, stackSize = 50, startEdges = null) {
     heldUsed: false,     // already swapped this turn?
     endless: false,      // Zen mode: stack refills, never game-over (set by main)
     journeyIdx: 0,       // Journey mode: index of the active objective
+    weatherOn: true,     // weather fronts active (main syncs to the Weather setting)
+    weather: { type: null, left: 0, until: 6 },
     rotation: 0,
     score: 0,
     placed: 0,
@@ -116,6 +118,7 @@ export function serialize(g) {
     blighthearts: g.blighthearts || [], lastHeartAt: g.lastHeartAt || 0,
     cleansedTotal: g.cleansedTotal || 0, heartsPurged: g.heartsPurged || 0, mode: g.mode,
     held: g.held || null, heldUsed: !!g.heldUsed, endless: !!g.endless, journeyIdx: g.journeyIdx || 0,
+    weatherOn: g.weatherOn !== false, weather: g.weather || null,
     current: g.current, stack: g.stack, quests: g.quests,
     board: [...g.board.values()],
   };
@@ -136,6 +139,7 @@ export function deserialize(d) {
     blighthearts: d.blighthearts || [], lastHeartAt: d.lastHeartAt || 0,
     cleansedTotal: d.cleansedTotal || 0, heartsPurged: d.heartsPurged || 0, mode: d.mode || 'warden',
     held: d.held || null, heldUsed: !!d.heldUsed, endless: !!d.endless, journeyIdx: d.journeyIdx || 0,
+    weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 },
   };
 }
 
@@ -194,17 +198,130 @@ export const SEASON_NAMES = ['Spring', 'Summer', 'Autumn', 'Winter'];
 export const SEASON_FAVOR = ['forest', 'field', 'orchard', 'village'];
 export function seasonAt(placed) { return Math.floor((placed || 0) / 13) % 4; }
 
-// Per-edge scoring for a set of matched edge indices under a season.
-function scoreMatches(matchedEdges, edges, season) {
-  let base = 0, seasonBonus = 0, frozen = 0;
+// ---- weather fronts (telegraphed; last a few placements; tweak scoring) ----
+// A front rolls in, runs for a handful of tiles, then clears for a gap before
+// the next. Seasons bias which front appears. Mostly upside (cozy).
+export const WEATHER = {
+  sun: { name: 'Harvest Sun', note: 'fields & orchards +50%', icon: 'sun' },
+  rain: { name: 'Downpour', note: 'rivers & coast +50%', icon: 'rain' },
+  frost: { name: 'Cold Snap', note: 'rivers frozen — hold water', icon: 'snow' },
+};
+const WEATHER_DUR = [4, 6];     // placements a front lasts
+const WEATHER_GAP = [5, 9];     // calm placements between fronts
+function rint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function rollFront(season) {
+  const r = Math.random();
+  if (season === 1) return r < 0.55 ? 'sun' : (r < 0.82 ? 'rain' : 'frost');   // summer
+  if (season === 3) return r < 0.55 ? 'frost' : (r < 0.82 ? 'rain' : 'sun');   // winter
+  if (season === 2) return r < 0.48 ? 'sun' : (r < 0.85 ? 'rain' : 'frost');   // autumn harvest
+  return r < 0.42 ? 'rain' : (r < 0.76 ? 'sun' : 'frost');                     // spring
+}
+// Advance the weather clock by one placement (mutates g.weather).
+function advanceWeather(g) {
+  if (!g.weatherOn) { g.weather = { type: null, left: 0, until: 0 }; return; }
+  const w = g.weather || (g.weather = { type: null, left: 0, until: rint(WEATHER_GAP[0], WEATHER_GAP[1]) });
+  if (w.type) {
+    w.left--;
+    if (w.left <= 0) { w.type = null; w.until = rint(WEATHER_GAP[0], WEATHER_GAP[1]); }
+  } else {
+    w.until--;
+    if (w.until <= 0) { w.type = rollFront(seasonAt(g.placed)); w.left = rint(WEATHER_DUR[0], WEATHER_DUR[1]); }
+  }
+}
+// Current active front for the HUD, or null.
+export function weatherInfo(g) {
+  const w = g && g.weather;
+  if (!w || !w.type) return null;
+  return Object.assign({ type: w.type, left: w.left }, WEATHER[w.type]);
+}
+
+// ---- living valley: irrigation (rivers water the farms beside them) ----
+// A farm tile (field/orchard edges) touching river water is irrigated, and the
+// valley yields a little "growth" score on its own each placement — the board
+// becomes a living system you cultivate, not just a mosaic you score once.
+function refreshIrrigation(g) {
+  let n = 0;
+  for (const t of g.board.values()) {
+    if (t.corrupt || !t.edges.some(e => e === 'field' || e === 'orchard')) { t.irrigated = false; continue; }
+    let wet = t.edges.includes('water');
+    for (let i = 0; i < 6 && !wet; i++) {
+      const n = neighbor(t.q, t.r, i);
+      const nb = g.board.get(key(n.q, n.r));
+      if (nb && nb.edges.includes('water')) wet = true;
+    }
+    t.irrigated = wet;
+    if (wet) n++;
+  }
+  return n;
+}
+
+// ---- wild forces: wildfire (first force of the shared spread family) ----
+// Drought (a Harvest Sun front) can ignite dry growth; fire spreads through
+// forest/field/orchard each placement, is blocked by water/coast/marsh/
+// mountain firebreaks, and is doused by rain/frost or a placed water tile.
+// Burnt-out tiles leave fertile ash: build beside it for a bonus, and it
+// regrows. Warden runs face it much more often.
+function flammable(t) {
+  if (t.corrupt || t.burning || t.ash) return false;
+  let dry = 0; for (const e of t.edges) if (e === 'forest' || e === 'field' || e === 'orchard') dry++;
+  return dry >= 2;
+}
+function firebreak(t) {
+  let mtn = 0;
+  for (const e of t.edges) { if (e === 'water' || e === 'coast' || e === 'marsh') return true; if (e === 'mountain') mtn++; }
+  return mtn >= 2;
+}
+function advanceFire(g) {
+  const out = { ignited: 0, spread: 0, burnedOut: 0, doused: 0, started: false };
+  const wt = g.weather && g.weather.type;
+  const burning = [...g.board.values()].filter(t => t.burning);
+  // Rain or a cold snap snuffs every flame (no ash — the land is spared).
+  if (burning.length && (wt === 'rain' || wt === 'frost')) {
+    for (const t of burning) t.burning = 0;
+    out.doused = burning.length;
+    return out;
+  }
+  for (const t of burning) {
+    t.burning--;
+    if (t.burning <= 0) { t.burning = 0; t.ash = true; out.burnedOut++; }
+  }
+  for (const t of burning) {
+    if (Math.random() > (g.mode === 'warden' ? 0.5 : 0.35)) continue;
+    const opts = [];
+    for (let i = 0; i < 6; i++) {
+      const n = neighbor(t.q, t.r, i);
+      const nb = g.board.get(key(n.q, n.r));
+      if (nb && flammable(nb) && !firebreak(nb)) opts.push(nb);
+    }
+    if (opts.length) { opts[(Math.random() * opts.length) | 0].burning = 2; out.spread++; }
+  }
+  // Fresh ignition only during a drought, and only if nothing burns yet.
+  if (!burning.length && wt === 'sun' && g.placed > 8) {
+    const chance = g.mode === 'warden' ? 0.22 : 0.05;
+    if (Math.random() < chance) {
+      const cands = [...g.board.values()].filter(t => flammable(t) && !firebreak(t));
+      if (cands.length) { cands[(Math.random() * cands.length) | 0].burning = 2; out.ignited = 1; out.started = true; }
+    }
+  }
+  return out;
+}
+
+// Per-edge scoring for a set of matched edge indices under a season + weather.
+function scoreMatches(matchedEdges, edges, season, weather) {
+  let base = 0, seasonBonus = 0, frozen = 0, weatherBonus = 0;
   const favor = SEASON_FAVOR[season];
+  const wt = weather && weather.type;
   for (const i of matchedEdges) {
     const e = edges[i];
-    if (season === 3 && e === 'water') { frozen++; continue; }   // frozen river
+    // Winter OR a Cold Snap freezes rivers — water matches score nothing.
+    if ((season === 3 || wt === 'frost') && e === 'water') { frozen++; continue; }
     base += 10;
     if (e === favor) seasonBonus += 5;                            // seasonal bounty
+    // Weather fronts add ~+50% to their favoured terrain (base is 10/edge).
+    if (wt === 'sun' && (e === 'field' || e === 'orchard')) weatherBonus += 5;
+    else if (wt === 'rain' && (e === 'water' || e === 'coast' || e === 'marsh')) weatherBonus += 5;
   }
-  return { base, seasonBonus, frozen };
+  return { base, seasonBonus, frozen, weatherBonus };
 }
 
 // Score a hypothetical placement of `edges` at (q,r): matched edges + perfect.
@@ -239,10 +356,10 @@ export function previewScore(g, q, r, edges) {
     if (nb && compatible(edges[i], nb.edges[opposite(i)])) matchedEdges.push(i);
   }
   const season = seasonAt(g.placed);
-  const sm = scoreMatches(matchedEdges, edges, season);
+  const sm = scoreMatches(matchedEdges, edges, season, g.weather);
   const projCombo = ev.matches > 0 ? (g.combo || 0) + 1 : 0;
   const mult = Math.min(MAX_COMBO_MULT, 1 + Math.max(0, projCombo - 1) * 0.5);
-  const base = sm.base + sm.seasonBonus + (ev.perfect ? 30 : 0);
+  const base = sm.base + sm.seasonBonus + (sm.weatherBonus || 0) + (ev.perfect ? 30 : 0);
   const scaled = Math.round(base * mult);
   const lm = g.current && g.current.landmark;
   let landmarkBonus = 0;
@@ -252,6 +369,8 @@ export function previewScore(g, q, r, edges) {
     matches: ev.matches, perfect: ev.perfect, mult, baseMatch: sm.base,
     estuaries, estuaryBonus, landmark: lm, landmarkBonus,
     season, seasonFavor: SEASON_FAVOR[season], seasonBonus: sm.seasonBonus, frozen: sm.frozen,
+    weatherBonus: sm.weatherBonus || 0,
+    weatherName: (g.weather && g.weather.type && WEATHER[g.weather.type]) ? WEATHER[g.weather.type].name : null,
     total: scaled + landmarkBonus + estuaryBonus,
   };
 }
@@ -291,9 +410,9 @@ export function place(g, q, r) {
   g.bestCombo = Math.max(g.bestCombo, g.combo);
   const mult = comboMult(g);
 
-  // Seasonal per-edge scoring (favoured terrain bonus; frozen rivers in winter).
-  const sm = scoreMatches(matchedEdges, edges, season);
-  let base = sm.base + sm.seasonBonus;
+  // Seasonal + weather per-edge scoring (favoured-terrain bonus; frozen rivers).
+  const sm = scoreMatches(matchedEdges, edges, season, g.weather);
+  let base = sm.base + sm.seasonBonus + (sm.weatherBonus || 0);
   if (evalRes.perfect) { base += 30; g.perfects++; }
   let points = Math.round(base * mult);
 
@@ -393,6 +512,39 @@ export function place(g, q, r) {
     }
   }
 
+  // Weather: advance the front clock; flag a newly-arrived front for the HUD.
+  const wPrev = g.weather && g.weather.type;
+  advanceWeather(g);
+  const wNow = g.weather && g.weather.type;
+  const weatherStarted = (wNow && wNow !== wPrev) ? wNow : null;
+
+  // Wildfire: this placement can douse flames (water/coast edges) and reclaim
+  // fertile ash beside it; then the fire itself advances.
+  const fire = { ignited: 0, spread: 0, burnedOut: 0, doused: 0, started: false };
+  let ashBonus = 0;
+  {
+    const wetPlaced = edges.some(e => e === 'water' || e === 'coast');
+    for (let i = 0; i < 6; i++) {
+      const n = neighbor(q, r, i);
+      const nb = g.board.get(key(n.q, n.r));
+      if (!nb) continue;
+      if (wetPlaced && nb.burning) { nb.burning = 0; fire.doused++; }
+      if (nb.ash) { nb.ash = false; ashBonus += 5; }      // new growth on burnt land
+    }
+    points += fire.doused * 10 + ashBonus;
+    const adv = advanceFire(g);
+    fire.ignited = adv.ignited; fire.spread += adv.spread; fire.burnedOut = adv.burnedOut;
+    fire.doused += adv.doused; fire.started = adv.started;
+    points -= (fire.ignited + fire.spread) * 8;           // burning land hurts
+  }
+
+  // Living valley: rivers water adjacent farms — the land yields a little
+  // growth on its own each placement (the fields sleep while frozen).
+  const irrigated = refreshIrrigation(g);
+  const frozenWorld = season === 3 || wNow === 'frost';
+  const growth = frozenWorld ? 0 : Math.min(10, Math.floor(irrigated / 2));
+  points += growth;
+
   g.score = Math.max(0, g.score + points);
   g.lastPlace = {
     q, r, matches: evalRes.matches, perfect: evalRes.perfect,
@@ -405,6 +557,9 @@ export function place(g, q, r) {
     heartRose: (blight.spawned || 0) > 0, heartsPurged: purge.purged,
     wardPlaced, wardOffered, blighthearts: (g.blighthearts || []).length,
     journeyDone, journeyIdx: g.journeyIdx || 0,
+    weatherBonus: sm.weatherBonus || 0, weatherStarted,
+    fireStarted: fire.started, fireSpread: fire.spread, fireDoused: fire.doused,
+    fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
   };
 
   // Zen / endless mode: keep the stack topped up so the run never ends.
