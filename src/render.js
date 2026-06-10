@@ -1567,8 +1567,8 @@ function drawZoomButtons(ctx, mouse) {
     ctx.fillStyle = hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hover ? '#cdb24a' : 'rgba(205,178,74,0.45)'; ctx.stroke();
     ctx.fillStyle = hover ? '#fff7e0' : '#e6ddc6'; ctx.textAlign = 'center';
-    ctx.font = '700 25px Nunito, sans-serif';
-    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 9);
+    ctx.font = `700 ${Math.round(25 * UI_SCALE)}px Nunito, sans-serif`;
+    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 9 * UI_SCALE);
   }
   ctx.textAlign = 'left';
 }
@@ -1591,6 +1591,8 @@ export function controlHit(x, y) {
 }
 function drawControlButtons(ctx, mouse, g, view) {
   const r = controlButtonRects();
+  const u = UI_SCALE;                       // icons & labels grow WITH the boxes
+  const lf = Math.round(9 * u);             // label font (was 9px fixed → unreadable on phones)
   const defs = [['rotate', '#cdb24a'], ['skip', '#9d8ac0'], ['harvest', '#9bd86b']];
   if ((g.torches || 0) > 0) defs.push(['torch', '#ff9a4d']);
   for (const [k, acc] of defs) {
@@ -1600,36 +1602,36 @@ function drawControlButtons(ctx, mouse, g, view) {
     roundRect(ctx, b.x, b.y, b.w, b.h, 12);
     ctx.fillStyle = armed ? (k === 'torch' ? 'rgba(80,40,14,0.96)' : 'rgba(34,58,22,0.96)') : hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hover ? acc : hexToRgba(acc, 0.5); ctx.stroke();
-    const cxp = b.x + b.w / 2, cyp = b.y + b.h / 2 - 4, col = hover ? '#fff7e0' : '#e6ddc6';
+    const cxp = b.x + b.w / 2, cyp = b.y + b.h / 2 - 4 * u, col = hover ? '#fff7e0' : '#e6ddc6';
     if (k === 'torch') {
-      panelIcon(ctx, cxp, cyp, 20, 'flame', armed ? '#ffcf6e' : '#ff9a4d');
-      ctx.fillStyle = hover ? '#ffd9b0' : '#c0a08a'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
-      ctx.fillText(armed ? 'TAP A TILE' : 'BURN ×' + g.torches, cxp, b.y + b.h - 7);
+      panelIcon(ctx, cxp, cyp, 20 * u, 'flame', armed ? '#ffcf6e' : '#ff9a4d');
+      ctx.fillStyle = hover ? '#ffd9b0' : '#c0a08a'; ctx.textAlign = 'center'; ctx.font = `700 ${lf}px Nunito, sans-serif`;
+      ctx.fillText(armed ? 'TAP A TILE' : 'BURN ×' + g.torches, cxp, b.y + b.h - 7 * u);
       continue;
     }
     if (k === 'harvest') {
       // sickle: curved blade + short handle
-      ctx.strokeStyle = armed ? '#cdf0a0' : col; ctx.lineWidth = 2.8; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.arc(cxp + 2, cyp - 2, 9, Math.PI * 0.15, Math.PI * 1.05); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cxp + 4, cyp + 5); ctx.lineTo(cxp + 9, cyp + 11); ctx.stroke();
-      ctx.fillStyle = hover ? '#d6f0c0' : '#9aa893'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
-      ctx.fillText(armed ? 'TAP A REGION' : 'REAP', cxp, b.y + b.h - 7);
+      ctx.strokeStyle = armed ? '#cdf0a0' : col; ctx.lineWidth = 2.8 * u; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(cxp + 2 * u, cyp - 2 * u, 9 * u, Math.PI * 0.15, Math.PI * 1.05); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cxp + 4 * u, cyp + 5 * u); ctx.lineTo(cxp + 9 * u, cyp + 11 * u); ctx.stroke();
+      ctx.fillStyle = hover ? '#d6f0c0' : '#9aa893'; ctx.textAlign = 'center'; ctx.font = `700 ${lf}px Nunito, sans-serif`;
+      ctx.fillText(armed ? 'TAP A REGION' : 'REAP', cxp, b.y + b.h - 7 * u);
       continue;
     }
-    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.6 * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     if (k === 'rotate') {
-      const R = 11;
+      const R = 11 * u;
       ctx.beginPath(); ctx.arc(cxp, cyp, R, -2.3, 1.5); ctx.stroke();      // circular arrow
       const ex = cxp + Math.cos(1.5) * R, ey = cyp + Math.sin(1.5) * R;
-      ctx.beginPath(); ctx.moveTo(ex - 6, ey - 2); ctx.lineTo(ex, ey + 4); ctx.lineTo(ex + 5, ey - 3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex - 6 * u, ey - 2 * u); ctx.lineTo(ex, ey + 4 * u); ctx.lineTo(ex + 5 * u, ey - 3 * u); ctx.stroke();
     } else {
-      const w = 7;                                                          // skip: » + bar
+      const w = 7 * u;                                                      // skip: » + bar
       ctx.beginPath(); ctx.moveTo(cxp - w * 1.7, cyp - w); ctx.lineTo(cxp - w * 0.4, cyp); ctx.lineTo(cxp - w * 1.7, cyp + w); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cxp - w * 0.1, cyp - w); ctx.lineTo(cxp + w * 1.2, cyp); ctx.lineTo(cxp - w * 0.1, cyp + w); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cxp + w * 1.5, cyp - w); ctx.lineTo(cxp + w * 1.5, cyp + w); ctx.stroke();
     }
-    ctx.fillStyle = hover ? '#cdd9c2' : '#9aa893'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
-    ctx.fillText(k === 'rotate' ? 'ROTATE' : 'SKIP', cxp, b.y + b.h - 7);
+    ctx.fillStyle = hover ? '#cdd9c2' : '#9aa893'; ctx.textAlign = 'center'; ctx.font = `700 ${lf}px Nunito, sans-serif`;
+    ctx.fillText(k === 'rotate' ? 'ROTATE' : 'SKIP', cxp, b.y + b.h - 7 * u);
   }
   ctx.textAlign = 'left';
 }
