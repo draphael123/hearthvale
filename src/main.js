@@ -200,8 +200,20 @@ function tryPlace() {
   if (newly.length) { persist(save); banners.push([100, '★ ' + newly[0].name, '#ffd766']); wantSound(60, () => audio.bell(0.16)); }
 
   if (res.heartsPurged) { banners.push([92, `Blightheart purged! +${res.heartsPurged * 60}`, '#9be6ff']); wantSound(85, () => audio.cleanse()); }
-  if (res.corruptionStarted) { banners.push([88, 'A Blightheart rises…', '#c44bd0']); wantSound(80, () => audio.blight()); }
-  else if (res.heartRose) { banners.push([78, 'Another Blightheart rises…', '#c44bd0']); wantSound(80, () => audio.blight()); }
+  const HEART_FLAVOR = {
+    rot: ['A Blightheart rises…', 'it creeps tile by tile — wall it with water & mountains', '#c44bd0'],
+    spore: ['A Sporeheart rises…', 'its spores LEAP over walls — purge it quickly', '#9fd83b'],
+    tendril: ['A Tendril-heart rises…', 'it slithers along rivers & roads — guard your waterways', '#3bc4d0'],
+  };
+  if (res.corruptionStarted || res.heartRose) {
+    const fl = HEART_FLAVOR[res.heartKind || 'rot'];
+    banners.push([res.corruptionStarted ? 88 : 78, fl[0], fl[2]]);
+    toasts.push([res.corruptionStarted ? 88 : 78, fl[0].replace('…', ''), fl[1], fl[2]]);
+    wantSound(80, () => audio.blight());
+  }
+  if (res.sporeLeap && hints.fire('spore_intro')) toasts.push([66, 'Spores on the wind', 'the Sporeheart corrupts past your walls — only a purge stops it', '#9fd83b']);
+  if (res.tendrilSlide && hints.fire('tendril_intro')) toasts.push([66, 'The tendril slithers', 'it follows connected rivers & roads — break the line or ward it', '#3bc4d0']);
+  if (res.festered && hints.fire('fester_intro')) toasts.push([66, 'The rot festers', 'an old heart spreads twice as fast now — purge it soon', '#d05bd8']);
   else if (res.corruptedNew) wantSound(40, () => audio.blight());
   if (res.firstLandmark) { banners.push([70, 'Landmark Raised!', '#b89bd8']); wantSound(55, () => audio.bell(0.18)); }
   if (res.firstDecree) banners.push([60, 'First Decree!', '#ffd766']);

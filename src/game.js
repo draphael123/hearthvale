@@ -116,7 +116,7 @@ export function serialize(g) {
     estuaryCount: g.estuaryCount || 0, gameOver: g.gameOver,
     prosperousTowns: g.prosperousTowns || {}, portTowns: g.portTowns || {},
     corrupted: g.corrupted || {}, blightStarted: !!g.blightStarted, corruptionOn: g.corruptionOn,
-    blighthearts: g.blighthearts || [], lastHeartAt: g.lastHeartAt || 0,
+    blighthearts: g.blighthearts || [], lastHeartAt: g.lastHeartAt || 0, lastHeartKind: g.lastHeartKind || null,
     cleansedTotal: g.cleansedTotal || 0, heartsPurged: g.heartsPurged || 0, mode: g.mode,
     held: g.held || null, heldUsed: !!g.heldUsed, endless: !!g.endless, journeyIdx: g.journeyIdx || 0,
     weatherOn: g.weatherOn !== false, weather: g.weather || null, stats: g.stats || {}, torches: g.torches || 0, gentleStart: !!g.gentleStart,
@@ -138,7 +138,7 @@ export function deserialize(d) {
     firstDecreeDone: !!d.firstDecreeDone, firstLandmarkDone: !!d.firstLandmarkDone, estuaryCount: d.estuaryCount || 0,
     prosperousTowns: d.prosperousTowns || {}, portTowns: d.portTowns || {},
     corrupted: d.corrupted || {}, blightStarted: !!d.blightStarted, corruptionOn: d.corruptionOn,
-    blighthearts: d.blighthearts || [], lastHeartAt: d.lastHeartAt || 0,
+    blighthearts: d.blighthearts || [], lastHeartAt: d.lastHeartAt || 0, lastHeartKind: d.lastHeartKind || null,
     cleansedTotal: d.cleansedTotal || 0, heartsPurged: d.heartsPurged || 0, mode: d.mode || 'warden',
     held: d.held || null, heldUsed: !!d.heldUsed, endless: !!d.endless, journeyIdx: d.journeyIdx || 0,
     weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 }, stats: d.stats || {},
@@ -794,6 +794,8 @@ export function place(g, q, r) {
     corruptionStarted: blight.started, corruptedNew: blight.newCount, cleansed,
     corruptedTotal: Object.keys(g.corrupted || {}).length,
     heartRose: (blight.spawned || 0) > 0, heartsPurged: purge.purged,
+    heartKind: blight.spawnedKind || null, sporeLeap: blight.sporeLeap || 0,
+    tendrilSlide: blight.tendrilSlide || 0, festered: blight.festered || 0,
     wardPlaced, wardOffered, blighthearts: (g.blighthearts || []).length,
     journeyDone, journeyIdx: g.journeyIdx || 0,
     weatherBonus: sm.weatherBonus || 0, weatherStarted,
@@ -1007,16 +1009,26 @@ function pickBlightSeed(g) {
   return best;
 }
 
-// Raise a new Blightheart (a source tile that spreads corruption).
+// Raise a new Blightheart (a source tile that spreads corruption). Hearts come
+// in KINDS with their own spread and counterplay; the first is always classic
+// rot, later ones vary (never the same kind twice in a row). Returns the kind.
+const HEART_KINDS = ['rot', 'spore', 'tendril'];
 function spawnHeart(g) {
   const seed = pickBlightSeed(g);
-  if (!seed) return false;
+  if (!seed) return null;
+  let kind = 'rot';
+  if ((g.blighthearts || []).length > 0 || g.heartsPurged) {
+    const pool = HEART_KINDS.filter(k2 => k2 !== g.lastHeartKind);
+    kind = pool[(Math.random() * pool.length) | 0];
+  }
   seed.corrupt = true; seed.blightheart = true; seed.purge = 0;
+  seed.heartKind = kind; seed.age = 0;
+  g.lastHeartKind = kind;
   g.corrupted[key(seed.q, seed.r)] = 1;
   g.blighthearts = g.blighthearts || [];
   g.blighthearts.push(key(seed.q, seed.r));
   g.lastHeartAt = g.placed;
-  return true;
+  return kind;
 }
 
 // The new tile cleanses adjacent (non-heart) corruption if it carries fae or is
@@ -1042,38 +1054,81 @@ function spreadCorruption(g, skipKey) {
   g.corrupted = g.corrupted || {};
   g.blighthearts = g.blighthearts || [];
   if (!g.blightStarted) {
-    if (g.placed < BLIGHT_START) return { started: false, newCount: 0, spawned: 0 };
+    if (g.placed < BLIGHT_START) return { started: false, newCount: 0, spawned: 0, spawnedKind: null };
     g.blightStarted = true;
-    const ok = spawnHeart(g);
-    return { started: ok, newCount: ok ? 1 : 0, spawned: ok ? 1 : 0 };
+    const kind = spawnHeart(g);
+    return { started: !!kind, newCount: kind ? 1 : 0, spawned: kind ? 1 : 0, spawnedKind: kind };
   }
   // Escalation: occasionally another heart rises elsewhere.
-  let spawned = 0;
+  let spawned = 0, spawnedKind = null;
   if (g.blighthearts.length > 0 && g.blighthearts.length < MAX_HEARTS &&
       g.placed - (g.lastHeartAt || BLIGHT_START) >= HEART_INTERVAL) {
-    if (spawnHeart(g)) spawned = 1;
+    spawnedKind = spawnHeart(g);
+    if (spawnedKind) spawned = 1;
   }
-  // Creep to one new frontier tile (never into a barrier or a warded tile).
-  const candidates = [];
-  for (const ck in g.corrupted) {
-    const ct = g.board.get(ck); if (!ct) continue;
-    for (let i = 0; i < 6; i++) {
-      if (BLIGHT_BARRIER.has(ct.edges[i])) continue;
-      const n = neighbor(ct.q, ct.r, i);
-      const nk = key(n.q, n.r);
-      if (nk === skipKey) continue;
-      const nb = g.board.get(nk);
-      if (!nb || nb.corrupt || BLIGHT_BARRIER.has(nb.edges[opposite(i)])) continue;
-      if (isWarded(g, nb.q, nb.r)) continue;
-      candidates.push(nb);
+  // Baseline rot-creep: one frontier tile (never through barriers or wards).
+  const frontier = () => {
+    const candidates = [];
+    for (const ck in g.corrupted) {
+      const ct = g.board.get(ck); if (!ct) continue;
+      for (let i = 0; i < 6; i++) {
+        if (BLIGHT_BARRIER.has(ct.edges[i])) continue;
+        const n = neighbor(ct.q, ct.r, i);
+        const nk = key(n.q, n.r);
+        if (nk === skipKey) continue;
+        const nb = g.board.get(nk);
+        if (!nb || nb.corrupt || BLIGHT_BARRIER.has(nb.edges[opposite(i)])) continue;
+        if (isWarded(g, nb.q, nb.r)) continue;
+        candidates.push(nb);
+      }
+    }
+    return candidates;
+  };
+  const infect = (t) => { t.corrupt = true; g.corrupted[key(t.q, t.r)] = 1; };
+  let newCount = 0;
+  const c0 = frontier();
+  if (c0.length) { infect(c0[(Math.random() * c0.length) | 0]); newCount++; }
+
+  // Heart personalities: each kind brings its own extra move + counterplay.
+  let sporeLeap = 0, tendrilSlide = 0, festered = 0;
+  for (const hk of g.blighthearts) {
+    const ht = g.board.get(hk);
+    if (!ht || !ht.corrupt) continue;
+    ht.age = (ht.age || 0) + 1;
+    const kind = ht.heartKind || 'rot';
+    if (kind === 'rot' && ht.age >= 14) {
+      // Festering: an old rot heart drives a second creep each placement.
+      const c1 = frontier();
+      if (c1.length) { infect(c1[(Math.random() * c1.length) | 0]); newCount++; festered++; }
+    } else if (kind === 'spore' && ht.age % 3 === 0) {
+      // Spores LEAP over walls: any tile within two hexes of the heart.
+      const opts = [];
+      for (const t of g.board.values()) {
+        if (t.corrupt || t.townCenter || (t.q === 0 && t.r === 0)) continue;
+        if (t.edges.every(e => BLIGHT_BARRIER.has(e))) continue;   // spores need land to take root
+        if (isWarded(g, t.q, t.r)) continue;
+        if (hexDist(ht.q, ht.r, t.q, t.r) <= 2) opts.push(t);
+      }
+      if (opts.length) { infect(opts[(Math.random() * opts.length) | 0]); newCount++; sporeLeap++; }
+    } else if (kind === 'tendril' && ht.age % 2 === 0) {
+      // Tendrils slither along connected rivers & roads — water doesn't stop them.
+      const opts = [];
+      for (const ck in g.corrupted) {
+        const ct = g.board.get(ck); if (!ct) continue;
+        for (let i = 0; i < 6; i++) {
+          const e = ct.edges[i];
+          if (e !== 'water' && e !== 'village') continue;
+          const n = neighbor(ct.q, ct.r, i);
+          const nb = g.board.get(key(n.q, n.r));
+          if (!nb || nb.corrupt || nb.edges[opposite(i)] !== e) continue;
+          if (isWarded(g, nb.q, nb.r)) continue;
+          opts.push(nb);
+        }
+      }
+      if (opts.length) { infect(opts[(Math.random() * opts.length) | 0]); newCount++; tendrilSlide++; }
     }
   }
-  let newCount = 0;
-  if (candidates.length) {
-    const victim = candidates[Math.floor(Math.random() * candidates.length)];
-    victim.corrupt = true; g.corrupted[key(victim.q, victim.r)] = 1; newCount = 1;
-  }
-  return { started: false, newCount, spawned };
+  return { started: false, newCount, spawned, spawnedKind, sporeLeap, tendrilSlide, festered };
 }
 
 // Wardtower auras grind down hearts they cover; a heart held for PURGE_TURNS dies

@@ -1051,6 +1051,15 @@ export function render(ctx, g, view, mouse, t, opts) {
     ctx.restore();
     if (tile.townSize && !tile.corrupt && !settings.reducedMotion) drawChimneySmoke(ctx, cx, cy, size, tile, seed, t);
     if (tile.corrupt) drawCorruption(ctx, cx, cy, size, tile, t);
+    if (tile.blightheart && tile.corrupt) {
+      // Heart kind shows in its core: purple rot, sickly-green spore, teal tendril.
+      const kc = { rot: '#d05bd8', spore: '#9fd83b', tendril: '#3bc4d0' }[tile.heartKind || 'rot'];
+      const pp = 0.5 + 0.5 * Math.sin(t / 240);
+      ctx.fillStyle = hexToRgba(kc, 0.45 + 0.4 * pp);
+      ctx.beginPath(); ctx.arc(cx, cy, sz * (0.15 + 0.05 * pp), 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = hexToRgba(kc, 0.45);
+      ctx.beginPath(); ctx.arc(cx, cy, sz * 0.33, 0, Math.PI * 2); ctx.stroke();
+    }
     if (tile.burning) drawFireFx(ctx, cx, cy, sz, t, seed);
     else if (tile.ash) drawAshFx(ctx, cx, cy, sz, seed, t);
     if (tile.flooded) drawFloodFx(ctx, cx, cy, sz, t, seed);
@@ -1870,6 +1879,15 @@ function drawPanel(ctx, g, view, t) {
     ctx.textAlign = 'left'; y += 15;
     ctx.fillStyle = '#9a8aa2'; ctx.font = '11px Nunito, sans-serif';
     ctx.fillText(`Corrupted ${n} · Wardtowers ${wards}`, pad, y); y += 13;
+    const kindNames = [];
+    for (const hk2 of (g.blighthearts || [])) {
+      const hh = g.board.get(hk2);
+      if (hh && hh.corrupt) kindNames.push((hh.heartKind || 'rot') + ((hh.heartKind || 'rot') === 'rot' && (hh.age || 0) >= 14 ? ' · festering!' : ''));
+    }
+    if (kindNames.length) {
+      ctx.fillStyle = '#b89bd8'; ctx.font = '10px Nunito, sans-serif';
+      ctx.fillText(kindNames.join(' · '), pad, y); y += 13;
+    }
     ctx.fillStyle = '#7aa0c0'; ctx.font = '10px Nunito, sans-serif';
     ctx.fillText(wards > 0 ? 'Hold a ward aura on a heart to purge' : 'Build a Wardtower near a heart', pad, y); y += 16;
   }
