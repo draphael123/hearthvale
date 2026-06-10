@@ -483,6 +483,32 @@ function advanceVisitor(g, irrigated) {
   return out;
 }
 
+// ---- hearthfolk: population & needs (the people of the vale) ----
+// Settlements hold folk; folk need food (farmland), water (rivers & coast)
+// and wood (healthy forests). Meeting every need lets the vale THRIVE —
+// steady income, towns celebrate and prosper. A shortfall never destroys
+// anything: growth simply waits until the land provides again.
+const TIER_POP = [2, 5, 8, 12];
+export function computeNeeds(g) {
+  let pop = 0, food = 0, water = 0, wood = 0;
+  for (const t of g.board.values()) {
+    if (t.corrupt || t.burning || t.flooded) continue;
+    if (t.townSize) pop += TIER_POP[townTier(t.townSize)] || 2;
+    let f = 0, w = 0, wd = 0;
+    for (const e of t.edges) {
+      if (e === 'field' || e === 'orchard') f++;
+      else if (e === 'water' || e === 'coast') w++;
+      else if (e === 'forest') wd++;
+    }
+    if (f >= 2 && !t.harvested && !t.overgrown) food += t.irrigated ? 2 : 1;   // watered farms feed double
+    if (w >= 2) water += 1;
+    if (wd >= 2 && !t.harvested) wood += 1;
+  }
+  const foodNeed = Math.ceil(pop / 8), waterNeed = Math.ceil(pop / 12), woodNeed = Math.ceil(pop / 12);
+  const met = pop < 6 || (food >= foodNeed && water >= waterNeed && wood >= woodNeed);
+  return { pop, food, water, wood, foodNeed, waterNeed, woodNeed, met };
+}
+
 // Per-edge scoring for a set of matched edge indices under a season + weather.
 function scoreMatches(matchedEdges, edges, season, weather) {
   let base = 0, seasonBonus = 0, frozen = 0, weatherBonus = 0;
@@ -642,26 +668,37 @@ export function place(g, q, r) {
   updateTowns(g);
   updateLabels(g);
 
+  // Hearthfolk: population & needs. Gates celebrations/prosperity and pays a
+  // steady "thrive" income while every need is met.
+  const needs = computeNeeds(g);
+  g.needs = needs;
+  {
+    const st0 = g.stats || (g.stats = {});
+    if (needs.pop > (st0.peakPop || 0)) st0.peakPop = needs.pop;
+  }
+  const thrive = needs.met && needs.pop >= 6 ? Math.min(8, Math.ceil(needs.pop / 6)) : 0;
+  points += thrive;
+
   // Festival when any town reaches a new tier milestone (hamlet → village → town).
   let festival = null;
   let maxTier = 0, festTile = null;
   for (const tt of g.board.values()) {
     if (tt.townCenter) { const tier = townTier(tt.townSize); if (tier > maxTier) { maxTier = tier; festTile = tt; } }
   }
-  // Celebrate the meaningful milestones only: village (tier 2) and town (tier 3).
-  if (maxTier >= 2 && maxTier > (g.townMilestone || 0) && festTile) {
+  // Celebrate the meaningful milestones only: village (tier 2) and town (tier 3)
+  // — and only when the folk's needs are met (otherwise the milestone waits).
+  if (maxTier >= 2 && maxTier > (g.townMilestone || 0) && festTile && needs.met) {
     g.townMilestone = maxTier;
     g.festivals = g.festivals || [];
     g.festivals.push({ q: festTile.q, r: festTile.r, tier: maxTier });
     festival = { q: festTile.q, r: festTile.r, tier: maxTier };
-  } else if (maxTier > (g.townMilestone || 0)) {
+  } else if (maxTier > (g.townMilestone || 0) && (maxTier < 2 || needs.met)) {
     g.townMilestone = maxTier;   // record tier-1 without a festival
   }
 
-  // Town needs & trade: a town thrives when food (field/orchard), water
-  // (water/coast/marsh) and wood (forest) are within its region; reaching the
-  // coast makes it a port. First time each happens pays a bonus.
-  const prosp = updateProsperity(g);
+  // Town needs & trade: prosperity (★) and ports only bloom while the vale's
+  // folk are provided for — a shortfall pauses them, never punishes.
+  const prosp = needs.met ? updateProsperity(g) : { bonus: 0, prospered: 0, ported: 0 };
   points += prosp.bonus;
 
   // The Blight & the Wardens (Warden mode): this tile cleanses adjacent rot,
@@ -760,6 +797,7 @@ export function place(g, q, r) {
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
     flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
     sprouted, visitorArrived: vis.arrived, visitorHelped: vis.helped, visitorGone: vis.gone, blessing,
+    thrive, pop: needs.pop, needsMet: needs.met,
   };
 
   // Run chronicle: cumulative totals for the game-over "story of your vale".

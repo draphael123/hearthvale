@@ -240,6 +240,8 @@ function tryPlace() {
   if (res.siltBonus) { toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']); wantSound(42, () => audio.bell(0.12)); }
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
   if (res.blessing && hints.fire('heirloom_bless')) toasts.push([47, 'Ancestral blessing', `the old stones favour you · +${res.blessing} beside the heirloom`, '#ffd766']);
+  if (res.thrive && hints.fire('thrive_intro')) toasts.push([46, 'The vale thrives', `your ${res.pop} hearthfolk are provided for · +${res.thrive} each tile`, '#e0b66f']);
+  if (!res.needsMet && res.pop >= 6 && hints.fire('needs_intro')) toasts.push([64, 'Your folk have needs', 'see the Hearthfolk panel — food, water & wood from the land', '#e0a87a']);
   if (res.visitorHelped) {
     banners.push([94, `★ ${res.visitorHelped.name.split(' ')[0]} is delighted! +${res.visitorHelped.reward}`, '#ffd766']);
     wantSound(82, () => { audio.decree(); audio.bell(0.16); });

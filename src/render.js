@@ -1132,6 +1132,8 @@ export function render(ctx, g, view, mouse, t, opts) {
   if (night > 0.04) {
     ctx.save();
     ctx.translate(0, oy); ctx.scale(1, BOARD_TILT); ctx.translate(0, -oy);
+    // Hungry folk dim the hearths: window glow softens while needs go unmet.
+    const litNight = (g.needs && !g.needs.met && g.needs.pop >= 6) ? night * 0.55 : night;
     for (const tile of g.board.values()) {
       if (!tile.townSize || tile.corrupt) continue;
       const p = hexToPixel(tile.q, tile.r, size);
@@ -1142,11 +1144,11 @@ export function render(ctx, g, view, mouse, t, opts) {
       const tier = townTier(tile.townSize);
       const hr = size * (1.3 + tier * 0.25);
       const hg = ctx.createRadialGradient(lx, ly, size * 0.1, lx, ly, hr);
-      hg.addColorStop(0, `rgba(255,178,84,${(0.14 + tier * 0.05) * night})`);
+      hg.addColorStop(0, `rgba(255,178,84,${(0.14 + tier * 0.05) * litNight})`);
       hg.addColorStop(1, 'rgba(255,178,84,0)');
       ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(lx, ly, hr, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
-      drawTownLights(ctx, lx, ly, size, tile, t, night);
+      drawTownLights(ctx, lx, ly, size, tile, t, litNight);
     }
     ctx.restore();
   }
@@ -1733,6 +1735,36 @@ function drawPanel(ctx, g, view, t) {
   ctx.fillText(g.score.toLocaleString(), pad + 30, y + 4);
   y += 26;
 
+  // ---- Hearthfolk: population & the three needs ----
+  const nd = g.needs;
+  if (nd && nd.pop > 0) {
+    panelDivider(ctx, pad, y, barW); y += 16;
+    panelHead(ctx, pad, y, 'person', 'HEARTHFOLK', nd.met ? '#e0b66f' : '#d49a6a');
+    ctx.textAlign = 'right'; ctx.fillStyle = '#efe7cf'; ctx.font = '800 13px Nunito, sans-serif';
+    ctx.fillText(String(nd.pop), W - 16, y); ctx.textAlign = 'left'; y += 17;
+    const pips = [['sprout', nd.food, nd.foodNeed], ['rain', nd.water, nd.waterNeed], ['leaf', nd.wood, nd.woodNeed]];
+    let px2 = pad;
+    for (const [icon, have, need] of pips) {
+      const ok = nd.pop < 6 || have >= need;
+      panelIcon(ctx, px2 + 6, y - 4, 12, icon, ok ? '#9bd86b' : '#e0905a');
+      ctx.fillStyle = ok ? '#9fb094' : '#e0a87a'; ctx.font = '700 11px Nunito, sans-serif';
+      ctx.fillText(have + '/' + need, px2 + 15, y);
+      px2 += 64;
+    }
+    y += 15;
+    if (!nd.met) {
+      const shorts = [];
+      if (nd.food < nd.foodNeed) shorts.push('food');
+      if (nd.water < nd.waterNeed) shorts.push('water');
+      if (nd.wood < nd.woodNeed) shorts.push('wood');
+      ctx.fillStyle = '#e0a87a'; ctx.font = '10px Nunito, sans-serif';
+      ctx.fillText('folk need more ' + shorts.join(' & ') + ' — growth waits', pad, y); y += 14;
+    } else if (nd.pop >= 6) {
+      ctx.fillStyle = '#9bd86b'; ctx.font = '10px Nunito, sans-serif';
+      ctx.fillText('every need met — the vale thrives', pad, y); y += 14;
+    }
+  }
+
   // ---- Weather front (telegraphed; tweaks scoring for a few tiles) ----
   const wf = weatherInfo(g);
   if (wf) {
@@ -2021,6 +2053,7 @@ function drawGameOver(ctx, g, view, t) {
   {
     const st = g.stats || {};
     const story = [];
+    if (st.peakPop >= 10) story.push(`${st.peakPop} hearthfolk came to call your vale home`);
     if (st.visitors) story.push(`${st.visitors} traveller${st.visitors > 1 ? 's' : ''} left the vale delighted`);
     if (st.harvests) story.push(`${st.harvests} harvest${st.harvests > 1 ? 's' : ''} reaped from ripe land`);
     if (st.sprouted) story.push(`the wild took root ${st.sprouted} time${st.sprouted > 1 ? 's' : ''} on its own`);
@@ -2510,7 +2543,7 @@ const TUT = [
   { title: '2 · Controls', body: ['Click a glowing slot to place a tile.', 'R / Space / right-click  ·  rotate', 'H  ·  hold a tile for later (swap once a turn)', 'S  ·  skip the current tile', 'Drag to pan · scroll to zoom · ↑ ↓ tilt camera'], art: 'controls' },
   { title: '3 · Scoring', body: ['Each matched edge  ·······  +10', 'A flawless tile (all 6 edges)  ·  PERFECT +30', 'Chain perfect-ish placements  ·  combo ×2 … ×4', 'Coast meets a river  ·  Estuary +15', 'Landmark tiles  ·  a big bonus', 'Hover any slot to see the live breakdown.'], art: 'scoring' },
   { title: '4 · Decrees', body: ['Some tiles raise a Decree — a little flag', 'with a goal (e.g. "grow this forest to 5").', 'Reach it for a big bonus AND extra tiles,', 'so fulfilling decrees keeps your run going.'], art: 'decree' },
-  { title: '5 · Towns & prosperity', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town with a', 'church and lit windows. Give a town food,', 'water & wood nearby and it prospers (★);', 'reach the coast for a port (⚓).'], art: 'town' },
+  { title: '5 · Towns & hearthfolk', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town. Your', 'folk need food, water & wood from the land —', 'meet every need and the vale thrives (★, ⚓,', 'steady income); fall short and growth waits.'], art: 'town' },
   { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — and winter freezes the rivers', 'and blankets the land in snow.'], art: 'seasons' },
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
   { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], art: 'living' },
