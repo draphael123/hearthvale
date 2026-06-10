@@ -1232,6 +1232,7 @@ export function render(ctx, g, view, mouse, t, opts) {
   if (bgMode) return;
   if (!g.gameOver) {
     drawZoomButtons(ctx, mouse);
+    drawPauseBtn(ctx, mouse);
     if (g.current) drawControlButtons(ctx, mouse, g, view);
   }
   // ---- Right HUD panel ----
@@ -1521,12 +1522,36 @@ function drawIrrigationGlints(ctx, cx, cy, size, t, seed) {
 // to keep their PHYSICAL size near the ~44px touch guideline.
 let UI_SCALE = 1;
 export function setUiScale(s) { UI_SCALE = s; }
+// Touch devices get touch wording (no keyboard hints) and bigger previews.
+let IS_TOUCH = false;
+export function setTouchMode(b) { IS_TOUCH = !!b; }
 export function zoomButtonRects() {
   const s = Math.round(42 * UI_SCALE), gap = 10, x = BOARD_W - 14 - s, yb = H - 16 - s;
   return {
     zin: { x, y: yb - s - gap, w: s, h: s, label: '+' },
     zout: { x, y: yb, w: s, h: s, label: '−' },
   };
+}
+
+// On-screen pause (top-right of board) — Esc doesn't exist on a phone.
+export function pauseBtnRect() {
+  const s = Math.round(46 * UI_SCALE);
+  return { x: BOARD_W - 14 - s, y: 14, w: s, h: s };
+}
+export function pauseBtnHit(x, y) {
+  const b = pauseBtnRect();
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+}
+function drawPauseBtn(ctx, mouse) {
+  const b = pauseBtnRect();
+  const hover = mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+  roundRect(ctx, b.x, b.y, b.w, b.h, 10);
+  ctx.fillStyle = hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.7)'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = hover ? '#cdb24a' : 'rgba(205,178,74,0.4)'; ctx.stroke();
+  const cxp = b.x + b.w / 2, cyp = b.y + b.h / 2, bw = b.w * 0.09, bh = b.h * 0.32;
+  ctx.fillStyle = hover ? '#fff7e0' : '#e6ddc6';
+  ctx.fillRect(cxp - bw * 2, cyp - bh / 2, bw * 1.4, bh);
+  ctx.fillRect(cxp + bw * 0.6, cyp - bh / 2, bw * 1.4, bh);
 }
 export function zoomHit(x, y) {
   const r = zoomButtonRects();
@@ -1926,22 +1951,31 @@ function drawPanel(ctx, g, view, t) {
   ctx.textAlign = 'right'; ctx.fillStyle = g.skips > 0 ? '#cdd9c2' : '#7a7060'; ctx.font = '800 12px Nunito, sans-serif';
   ctx.fillText(String(g.skips), W - 16, y); ctx.textAlign = 'left';
   y += 12;
-  const cx = pad + 34, cy = y + 32;
+  // On small screens the current tile is the thing you most need to READ —
+  // draw it much bigger and shorten the queue to two.
+  const big = UI_SCALE > 1;
+  const tileR = big ? 46 : 32;
+  const cx = pad + tileR + 2, cy = y + tileR + (big ? 4 : 0);
   const edges = currentEdges(g);
   if (edges) {
-    drawTile(ctx, cx, cy, 32, edges, 0x1234, g.current && g.current.landmark, t);
-    drawHexOutline(ctx, cx, cy, 32, '#f3ead0', 2.5, false);
+    drawTile(ctx, cx, cy, tileR, edges, 0x1234, g.current && g.current.landmark, t);
+    drawHexOutline(ctx, cx, cy, tileR, '#f3ead0', 2.5, false);
   }
-  const up = upcoming(g, 3);
-  let qx = cx + 60;
+  const up = upcoming(g, big ? 2 : 3);
+  let qx = cx + tileR + 28;
   for (let i = 0; i < up.length; i++) {
     drawTile(ctx, qx, cy, 20, up[i].edges, 0x55 + i * 7, up[i].landmark, t);
     drawHexOutline(ctx, qx, cy, 20, 'rgba(243,234,208,0.5)', 1.5, false);
     qx += 44;
   }
   ctx.fillStyle = '#5d6e5a'; ctx.font = '10px Nunito, sans-serif';
-  ctx.fillText('R rotate · S skip · H hold', cx + 60, cy + 30);
-  y = cy + 46;
+  if (big) {
+    ctx.fillText(IS_TOUCH ? 'rotate & skip with the buttons' : 'R rotate · S skip · H hold', pad, cy + tileR + 14);
+    y = cy + tileR + 26;
+  } else {
+    ctx.fillText(IS_TOUCH ? 'rotate & skip with the buttons' : 'R rotate · S skip · H hold', cx + 60, cy + 30);
+    y = cy + 46;
+  }
 
   // ---- Hold slot ----
   panelHead(ctx, pad, y, 'hold', 'HOLD', g.heldUsed ? '#7e7060' : '#cdb24a');
@@ -1953,7 +1987,7 @@ function drawPanel(ctx, g, view, t) {
     drawHexOutline(ctx, hcx, hcy, 20, 'rgba(180,200,170,0.3)', 1.4, true);
   }
   ctx.fillStyle = g.heldUsed ? '#7e7060' : '#bdcab2'; ctx.font = '11px Nunito, sans-serif';
-  ctx.fillText(g.held ? 'press H to swap' : 'press H to stash', hcx + 30, hcy - 2);
+  ctx.fillText(g.held ? (IS_TOUCH ? 'tap here to swap' : 'press H to swap') : (IS_TOUCH ? 'tap here to stash' : 'press H to stash'), hcx + 30, hcy - 2);
   ctx.fillStyle = '#5d6e5a'; ctx.font = '10px Nunito, sans-serif';
   ctx.fillText(g.heldUsed ? 'already swapped this turn' : 'once per turn', hcx + 30, hcy + 12);
   _holdRect = { x: hcx - 22, y: hcy - 22, w: 44, h: 44 };
@@ -1992,10 +2026,17 @@ function drawPanel(ctx, g, view, t) {
   else { ctx.fillStyle = '#7e9277'; ctx.fillText('all biomes unlocked', pad + 20, H - 14); }
   ctx.textAlign = 'right';
   ctx.fillStyle = isMuted() ? '#7a5a5a' : '#6f8a68';
-  ctx.fillText(isMuted() ? '♪ muted (M)' : '♪ sound (M)', W - 16, H - 14);
-  ctx.fillStyle = '#5d6e5a';
-  ctx.fillText('⏸ Esc', W - 16, H - 30);
+  ctx.fillText(isMuted() ? (IS_TOUCH ? '♪ muted · tap' : '♪ muted (M)') : (IS_TOUCH ? '♪ sound · tap' : '♪ sound (M)'), W - 16, H - 14);
+  if (!IS_TOUCH) {
+    ctx.fillStyle = '#5d6e5a';
+    ctx.fillText('⏸ Esc', W - 16, H - 30);
+  }
   ctx.textAlign = 'left';
+}
+
+// The footer ♪ label doubles as a tap target for muting (no M key on phones).
+export function muteHit(x, y) {
+  return x >= W - 130 && x <= W - 8 && y >= H - 28 && y <= H - 6;
 }
 
 function drawGameOver(ctx, g, view, t) {
@@ -2591,14 +2632,14 @@ export function renderMusic(ctx, view, mouse, t) {
 const TUT = [
   { title: 'Welcome to Hearthvale', body: ['Place hexagonal tiles to grow a living vale —', 'forests, rivers, farms and towns that breathe,', 'lit by a moving sun through day and night.', '', 'This guide walks through every mechanic.'], art: 'tile' },
   { title: '1 · Match the edges', body: ['Each tile has 6 terrain edges. When tiles', 'meet, edges of the SAME terrain score —', 'green ticks. Neighbours on the "terrain', 'wheel" blend too (coast & river, moor &', 'field) — cyan ticks. Mismatches just don’t score.'], art: 'match' },
-  { title: '2 · Controls', body: ['Click a glowing slot to place a tile.', 'R / Space / right-click  ·  rotate', 'H  ·  hold a tile for later (swap once a turn)', 'S  ·  skip the current tile', 'Drag to pan · scroll to zoom · ↑ ↓ tilt camera'], art: 'controls' },
-  { title: '3 · Scoring', body: ['Each matched edge  ·······  +10', 'A flawless tile (all 6 edges)  ·  PERFECT +30', 'Chain perfect-ish placements  ·  combo ×2 … ×4', 'Coast meets a river  ·  Estuary +15', 'Landmark tiles  ·  a big bonus', 'Hover any slot to see the live breakdown.'], art: 'scoring' },
+  { title: '2 · Controls', body: ['Click a glowing slot to place a tile.', 'R / Space / right-click  ·  rotate', 'H  ·  hold a tile for later (swap once a turn)', 'S  ·  skip the current tile', 'Drag to pan · scroll to zoom · ↑ ↓ tilt camera'], bodyTouch: ['Tap a glowing slot to place your tile.', 'Use the round buttons at the bottom left:', 'rotate · skip · reap · burn.', 'Tap the HOLD slot to stash a tile for later.', 'Drag to pan · pinch or +/− to zoom.'], art: 'controls' },
+  { title: '3 · Scoring', body: ['Each matched edge  ·······  +10', 'A flawless tile (all 6 edges)  ·  PERFECT +30', 'Chain perfect-ish placements  ·  combo ×2 … ×4', 'Coast meets a river  ·  Estuary +15', 'Landmark tiles  ·  a big bonus', 'Hover any slot to see the live breakdown.'], bodyTouch: ['Each matched edge  ·······  +10', 'A flawless tile (all 6 edges)  ·  PERFECT +30', 'Chain perfect-ish placements  ·  combo ×2 … ×4', 'Coast meets a river  ·  Estuary +15', 'Landmark tiles  ·  a big bonus'], art: 'scoring' },
   { title: '4 · Decrees', body: ['Some tiles raise a Decree — a little flag', 'with a goal (e.g. "grow this forest to 5").', 'Reach it for a big bonus AND extra tiles,', 'so fulfilling decrees keeps your run going.'], art: 'decree' },
   { title: '5 · Towns & hearthfolk', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town. Your', 'folk need food, water & wood from the land —', 'meet every need and the vale thrives (★, ⚓,', 'steady income); fall short and growth waits.'], art: 'town' },
   { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — winter freezes the rivers and', 'your folk burn extra wood to stay warm,', 'so lay in forests before the snow.'], art: 'seasons' },
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
-  { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], art: 'living' },
-  { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], art: 'fire' },
+  { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], bodyTouch: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle button', 'for points & tiles — the land then regrows.'], art: 'living' },
+  { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], bodyTouch: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 button.'], art: 'fire' },
   { title: '10 · The Blight & the Wardens', body: ['In Warden mode, Blighthearts rise and', 'corruption spreads from them (−points).', 'Cleanse tiles with fae edges or a shrine,', 'and build a Wardtower — holding its aura on', 'a heart purges it and its whole cluster.'], art: 'blight' },
   { title: '11 · Know your blight', body: ['Rot creeps tile by tile — wall it with water', '& mountains, but purge before it FESTERS', '(old rot spreads twice as fast).', 'Spore leaps OVER walls — purge it quickly.', 'Tendril slithers along rivers & roads —', 'water won’t stop it; guard what you connect.'], art: 'hearts' },
   { title: '12 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },
@@ -2737,7 +2778,8 @@ export function renderTutorial(ctx, idx, mouse, t) {
   if (card.art) drawTutArt(ctx, card.art, W / 2, cardY + 132, t);
   const bodyY = card.art ? cardY + 196 : cardY + 96;
   ctx.fillStyle = '#cdd9c2'; ctx.font = '16px Nunito, sans-serif';
-  card.body.forEach((l, i) => ctx.fillText(l, W / 2, bodyY + i * 26));
+  const lines = (IS_TOUCH && card.bodyTouch) ? card.bodyTouch : card.body;
+  lines.forEach((l, i) => ctx.fillText(l, W / 2, bodyY + i * 26));
 
   // step counter + dots
   ctx.fillStyle = '#8aa080'; ctx.font = '12px Nunito, sans-serif'; ctx.textAlign = 'center';

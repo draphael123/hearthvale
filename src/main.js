@@ -4,7 +4,8 @@ import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURN
 import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
-  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, renderVisit, visitHit, setRenderScale, setUiScale, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
+  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, renderVisit, visitHit, setRenderScale, setUiScale, setTouchMode,
+  pauseBtnHit, muteHit, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
 import { START_OPTIONS } from './tiles.js';
 import { loadSave, saveRun, paletteFor, todayYmd, persist, THEMES } from './meta.js';
 import { setRng } from './tiles.js';
@@ -35,6 +36,8 @@ function resizeCanvas() {
   // Phone-sized canvas → grow on-screen buttons toward ~44px physical.
   setUiScale(rect.width / W < 0.8 ? 1.4 : 1);
 }
+// Touch devices: hints speak in taps & buttons, never key names.
+setTouchMode(('ontouchstart' in window) || (window.matchMedia && matchMedia('(pointer: coarse)').matches));
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
@@ -523,6 +526,8 @@ canvas.addEventListener('pointerup', (e) => {
     }
     restart();
   } else {
+    if (pauseBtnHit(mouse.x, mouse.y)) { pauseT = lastFrameT; screen = 'pause'; audio.click(); return; }
+    if (muteHit(mouse.x, mouse.y)) { audio.toggleMute(); return; }
     const zh = zoomHit(mouse.x, mouse.y);
     if (zh) { view.size = Math.max(22, Math.min(60, view.size * (zh === 'zin' ? 1.18 : 0.85))); audio.click(); return; }
     const ch = g.current && controlHit(mouse.x, mouse.y);

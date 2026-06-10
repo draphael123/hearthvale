@@ -75,6 +75,11 @@
       @media (orientation: portrait) and (max-width: 700px) {
         #rotate { display: flex; }
       }
+      /* Touch devices: the keyboard hint footer is noise — the tutorial and
+         on-screen buttons carry the controls. */
+      @media (pointer: coarse) {
+        #hint { display: none; }
+      }
     </style>
   </head>
   <body>
