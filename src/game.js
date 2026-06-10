@@ -699,7 +699,7 @@ export function place(g, q, r) {
   // Wildfire: this placement can douse flames (water/coast edges) and reclaim
   // fertile ash beside it; then the fire itself advances.
   const fire = { ignited: 0, spread: 0, burnedOut: 0, doused: 0, started: false };
-  let ashBonus = 0, siltBonus = 0, pruned = 0;
+  let ashBonus = 0, siltBonus = 0, pruned = 0, blessing = 0;
   {
     const wetPlaced = edges.some(e => e === 'water' || e === 'coast');
     for (let i = 0; i < 6; i++) {
@@ -710,9 +710,10 @@ export function place(g, q, r) {
       if (nb.ash) { nb.ash = false; ashBonus += 12; }           // new growth on burnt land
       if (nb.floodplain) { nb.floodplain = false; siltBonus += 15; }  // rich silt claimed
       if (nb.overgrown) { nb.overgrown = false; pruned++; }     // brambles pruned back
+      if (nb.heirloom) blessing = 12;                           // ancestral blessing
     }
     // Counterplay pays well (sim showed small rewards vanish vs combos).
-    points += fire.doused * 25 + ashBonus + siltBonus + pruned * 15;
+    points += fire.doused * 25 + ashBonus + siltBonus + pruned * 15 + blessing;
     const adv = advanceFire(g);
     fire.ignited = adv.ignited; fire.spread += adv.spread; fire.burnedOut = adv.burnedOut;
     fire.doused += adv.doused; fire.started = adv.started;
@@ -758,7 +759,7 @@ export function place(g, q, r) {
     fireStarted: fire.started, fireSpread: fire.spread, fireDoused: fire.doused,
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
     flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
-    sprouted, visitorArrived: vis.arrived, visitorHelped: vis.helped, visitorGone: vis.gone,
+    sprouted, visitorArrived: vis.arrived, visitorHelped: vis.helped, visitorGone: vis.gone, blessing,
   };
 
   // Run chronicle: cumulative totals for the game-over "story of your vale".

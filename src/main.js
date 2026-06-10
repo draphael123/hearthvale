@@ -146,6 +146,12 @@ function startRun(daily, mode, startEdges, paletteOverride) {
   view.copied = false;
   clearRunState();
   fx.reset();
+  // The vale remembers: last run's first landmark endures as an ancestral
+  // ruin a short walk from your start — a second seed to build toward.
+  if (!daily && save.heirloom && save.heirloom.landmark) {
+    g.board.set(key(2, 0), { q: 2, r: 0, edges: ['field', 'forest', 'field', 'field', 'forest', 'field'], landmark: save.heirloom.landmark, heirloom: true });
+    fx.toast('The vale remembers', `your ancestors’ ${save.heirloom.landmark} still stands — build beside it`, '#ffd766');
+  }
   screen = 'play';
 }
 
@@ -233,6 +239,7 @@ function tryPlace() {
   if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 15}`, '#9bd86b']); wantSound(43, () => audio.prune()); }
   if (res.siltBonus) { toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']); wantSound(42, () => audio.bell(0.12)); }
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
+  if (res.blessing && hints.fire('heirloom_bless')) toasts.push([47, 'Ancestral blessing', `the old stones favour you · +${res.blessing} beside the heirloom`, '#ffd766']);
   if (res.visitorHelped) {
     banners.push([94, `★ ${res.visitorHelped.name.split(' ')[0]} is delighted! +${res.visitorHelped.reward}`, '#ffd766']);
     wantSound(82, () => { audio.decree(); audio.bell(0.16); });
@@ -284,6 +291,12 @@ function computeBiomes(g) {
 
 function finishRun() {
   if (view.savedThisRun) return;
+  // The vale remembers: capture this run's first own-built landmark as the
+  // heirloom that will stand in the next vale.
+  if (!view.daily) {
+    const lm = [...g.board.values()].find(t => t.landmark && !t.heirloom);
+    if (lm) save.heirloom = { landmark: lm.landmark };
+  }
   saveRun(save, g.score, g.placed, { daily: view.daily, ymd: todayYmd() });
   view.savedThisRun = true;
 }

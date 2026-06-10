@@ -1056,6 +1056,7 @@ export function render(ctx, g, view, mouse, t, opts) {
     if (tile.flooded) drawFloodFx(ctx, cx, cy, sz, t, seed);
     else if (tile.floodplain) drawFloodplainFx(ctx, cx, cy, sz, seed);
     if (tile.harvested) drawStubbleFx(ctx, cx, cy, sz, seed);
+    if (tile.heirloom) drawHexOutline(ctx, cx, cy, sz * 0.97, `rgba(255,214,102,${0.3 + 0.2 * Math.sin(t / 420)})`, 2, false);
     if (tile.overgrown && !tile.burning) drawOvergrowthFx(ctx, cx, cy, sz, seed, t);
     if (tile.irrigated && !tile.corrupt && !tile.burning && !settings.reducedMotion) drawIrrigationGlints(ctx, cx, cy, sz, t, seed);
     if (!settings.reducedMotion && tile.edges.includes('water')) drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t);
@@ -2047,6 +2048,16 @@ function drawGameOver(ctx, g, view, t) {
     ctx.font = 'bold 14px Nunito, sans-serif';
     ctx.fillText(`✦ Unlocked: ${newUnlocks.map(u => u.name).join(' & ')} ✦`, cx, y);
     y += 22;
+  }
+
+  // Legacy: this run's first landmark endures into the next vale.
+  if (!view.daily) {
+    const endure = [...g.board.values()].find(tl => tl.landmark && !tl.heirloom);
+    if (endure) {
+      ctx.fillStyle = '#e0c46f'; ctx.font = 'italic 12px Nunito, sans-serif';
+      ctx.fillText(`✦ Your ${endure.landmark} will endure into the next vale ✦`, cx, y);
+      y += 18;
+    }
   }
 
   // Daily runs get a shareable result + copy button.
