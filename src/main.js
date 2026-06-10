@@ -233,6 +233,15 @@ function tryPlace() {
   if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 15}`, '#9bd86b']); wantSound(43, () => audio.prune()); }
   if (res.siltBonus) { toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']); wantSound(42, () => audio.bell(0.12)); }
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
+  if (res.visitorHelped) {
+    banners.push([94, `★ ${res.visitorHelped.name.split(' ')[0]} is delighted! +${res.visitorHelped.reward}`, '#ffd766']);
+    wantSound(82, () => { audio.decree(); audio.bell(0.16); });
+  }
+  if (res.visitorArrived) {
+    toasts.push([76, `${res.visitorArrived.name} pays a visit`, `“${res.visitorArrived.wish}”`, '#e0b66f']);
+    wantSound(60, () => audio.visitor());
+  }
+  if (res.visitorGone) toasts.push([48, `${res.visitorGone.name.split(' ')[0]} waves farewell`, 'no harm done — another traveller may pass through', '#b8a98b']);
   if (res.sprouted) {
     toasts.push([38, 'The wild spreads', `a young ${res.sprouted.terr} takes root on its own`, '#8fc486']);
     const sp = hexToPixel(res.sprouted.q, res.sprouted.r, view.size);

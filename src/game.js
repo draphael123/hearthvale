@@ -120,6 +120,7 @@ export function serialize(g) {
     cleansedTotal: g.cleansedTotal || 0, heartsPurged: g.heartsPurged || 0, mode: g.mode,
     held: g.held || null, heldUsed: !!g.heldUsed, endless: !!g.endless, journeyIdx: g.journeyIdx || 0,
     weatherOn: g.weatherOn !== false, weather: g.weather || null, stats: g.stats || {}, torches: g.torches || 0, gentleStart: !!g.gentleStart,
+    visitor: g.visitor || null, visitorCooldown: g.visitorCooldown || 0, lastVisitorId: g.lastVisitorId || null,
     current: g.current, stack: g.stack, quests: g.quests,
     board: [...g.board.values()],
   };
@@ -142,6 +143,7 @@ export function deserialize(d) {
     held: d.held || null, heldUsed: !!d.heldUsed, endless: !!d.endless, journeyIdx: d.journeyIdx || 0,
     weatherOn: d.weatherOn !== false, weather: d.weather || { type: null, left: 0, until: 6 }, stats: d.stats || {},
     torches: d.torches || 0, gentleStart: !!d.gentleStart,
+    visitor: d.visitor || null, visitorCooldown: d.visitorCooldown || 0, lastVisitorId: d.lastVisitorId || null,
   };
 }
 
@@ -432,6 +434,55 @@ export function harvestRegion(g, q, r) {
   return { size: region.length, points, tiles: bonusTiles, terr };
 }
 
+// ---- named visitors: wandering folk with small wishes for the vale ----
+// One traveller at a time appears on the board, strolls tile to tile, and asks
+// for something the vale can give. Fulfil the wish while they're here for a
+// generous reward; if not, they simply wave farewell (cozy — no penalty).
+const VISITORS = [
+  { id: 'maren', name: 'Maren the Miller', wish: 'Water the farms — six fields drinking from the rivers', check: (g, b, irr) => irr >= 6, reward: 120 },
+  { id: 'sylfa', name: 'Sylfa the Fae Trader', wish: 'Grow me a deep wood — a forest of six', check: (g) => maxTerrainRegion(g, 'forest') >= 6, reward: 120 },
+  { id: 'bram', name: 'Old Bram the Reeve', wish: 'Raise a proud town of five', check: (g) => maxTownSize(g) >= 5, reward: 140 },
+  { id: 'tilda', name: 'Tilda the Harvester', wish: 'Reap a ripe region while I watch', check: (g, b) => ((g.stats || {}).harvests || 0) > (b.harvests || 0), reward: 100 },
+  { id: 'rook', name: 'Rook the Charcoal-Burner', wish: 'Light a controlled burn for my kilns', check: (g, b) => ((g.stats || {}).torched || 0) > (b.torched || 0), reward: 100 },
+];
+function advanceVisitor(g, irrigated) {
+  const out = { arrived: null, helped: null, gone: null };
+  g.visitorCooldown = Math.max(0, (g.visitorCooldown || 0) - 1);
+  if (g.visitor) {
+    const v = g.visitor;
+    const def = VISITORS.find(d => d.id === v.id);
+    // stroll to a neighbouring tile now and then
+    if (Math.random() < 0.3) {
+      const opts = [];
+      for (let i = 0; i < 6; i++) { const n = neighbor(v.q, v.r, i); if (g.board.has(key(n.q, n.r))) opts.push(n); }
+      if (opts.length) { const n = opts[(Math.random() * opts.length) | 0]; v.q = n.q; v.r = n.r; }
+    }
+    if (def && def.check(g, v.base || {}, irrigated)) {
+      out.helped = { name: v.name, reward: def.reward };
+      const st = g.stats || (g.stats = {});
+      st.visitors = (st.visitors || 0) + 1;
+      g.visitor = null; g.visitorCooldown = 14;
+      return out;
+    }
+    v.left--;
+    if (v.left <= 0) { out.gone = { name: v.name }; g.visitor = null; g.visitorCooldown = 14; }
+    return out;
+  }
+  if (g.placed > 14 && g.visitorCooldown <= 0 && Math.random() < 0.1 && !(g.gentleStart && g.placed < 24)) {
+    const base = { harvests: (g.stats || {}).harvests || 0, torched: (g.stats || {}).torched || 0 };
+    const pool = VISITORS.filter(d => d.id !== g.lastVisitorId && !d.check(g, base, irrigated));
+    if (pool.length) {
+      const def = pool[(Math.random() * pool.length) | 0];
+      const tiles = [...g.board.values()];
+      const t0 = tiles[(Math.random() * tiles.length) | 0];
+      g.visitor = { id: def.id, name: def.name, wish: def.wish, q: t0.q, r: t0.r, left: 12, base };
+      g.lastVisitorId = def.id;
+      out.arrived = { name: def.name, wish: def.wish };
+    }
+  }
+  return out;
+}
+
 // Per-edge scoring for a set of matched edge indices under a season + weather.
 function scoreMatches(matchedEdges, edges, season, weather) {
   let base = 0, seasonBonus = 0, frozen = 0, weatherBonus = 0;
@@ -687,6 +738,10 @@ export function place(g, q, r) {
   const growth = frozenWorld ? 0 : Math.min(10, Math.floor(irrigated / 2));
   points += growth;
 
+  // Visitors: a wandering traveller may arrive, stroll, and reward a wish.
+  const vis = advanceVisitor(g, irrigated);
+  if (vis.helped) points += vis.helped.reward;
+
   g.score = Math.max(0, g.score + points);
   g.lastPlace = {
     q, r, matches: evalRes.matches, perfect: evalRes.perfect,
@@ -703,7 +758,7 @@ export function place(g, q, r) {
     fireStarted: fire.started, fireSpread: fire.spread, fireDoused: fire.doused,
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
     flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
-    sprouted,
+    sprouted, visitorArrived: vis.arrived, visitorHelped: vis.helped, visitorGone: vis.gone,
   };
 
   // Run chronicle: cumulative totals for the game-over "story of your vale".

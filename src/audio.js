@@ -386,6 +386,12 @@ export function gameover() {
   [0, 3, 7, 12].forEach((s, i) => note(root * semis(s), 2.2, 'sine', 0.11, i * 0.2, null, 0.06));
 }
 
+// A traveller arrives: a friendly three-note hail.
+export function visitor() {
+  if (!ctx || muted) return;
+  [0, 4, 9].forEach((s2, i) => note(A3 * semis(s2), 0.45, 'sine', 0.08, i * 0.1));
+}
+
 // Wildfire catches: a dry whoosh with crackling pops.
 export function fireStart() {
   if (!ctx || muted) return;

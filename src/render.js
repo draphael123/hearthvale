@@ -1065,6 +1065,13 @@ export function render(ctx, g, view, mouse, t, opts) {
     if (qd) drawQuestFlag(ctx, cx, cy, size, qd, t);
   }
 
+  // A visiting traveller strolling the vale.
+  if (g.visitor) {
+    const vt = g.board.get(key(g.visitor.q, g.visitor.r));
+    const vp = hexToPixel(g.visitor.q, g.visitor.r, size);
+    drawVisitor(ctx, ox + vp.x, oy + vp.y - (vt ? liftOf(vt) : 0), size, g.visitor, t);
+  }
+
   // Wardtower protective domes (the "warded" zones blight cannot enter).
   if (g.corruptionOn !== false) drawWardAuras(ctx, g, size, ox, oy, t);
 
@@ -1443,6 +1450,35 @@ function drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t) {
   }
 }
 
+// A named visitor strolling the vale: cloaked figure + staff + name tag.
+const VISITOR_COLS = { maren: '#c9a13b', sylfa: '#9b6fd0', bram: '#7a8b9b', tilda: '#c96f3b', rook: '#6b6b6b' };
+function drawVisitor(ctx, cx, cy, size, v, t) {
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(1, 1 / BOARD_TILT); ctx.translate(-cx, -cy);   // stand upright
+  const bob = Math.sin(t / 420) * size * 0.02;
+  const s = size * 0.36, y0 = cy + bob;
+  const col = VISITOR_COLS[v.id] || '#c9a13b';
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(cx, y0 + s * 0.55, s * 0.45, s * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = col;                                          // cloak
+  ctx.beginPath(); ctx.moveTo(cx - s * 0.35, y0 + s * 0.5);
+  ctx.quadraticCurveTo(cx, y0 - s * 0.75, cx + s * 0.35, y0 + s * 0.5);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#e8c9a0';                                    // head
+  ctx.beginPath(); ctx.arc(cx, y0 - s * 0.62, s * 0.22, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#5a3d22'; ctx.lineWidth = Math.max(1.4, s * 0.09); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(cx + s * 0.45, y0 + s * 0.5); ctx.lineTo(cx + s * 0.45, y0 - s * 0.72); ctx.stroke();   // staff
+  ctx.font = '700 10px Nunito, sans-serif'; ctx.textAlign = 'center';
+  const name = v.name.split(' ')[0];
+  const w = ctx.measureText(name).width + 14;
+  roundRect(ctx, cx - w / 2, y0 - s * 1.55, w, 15, 7);
+  ctx.fillStyle = 'rgba(14,20,14,0.85)'; ctx.fill();
+  roundRect(ctx, cx - w / 2, y0 - s * 1.55, w, 15, 7);
+  ctx.lineWidth = 1.2; ctx.strokeStyle = hexToRgba(col, 0.8); ctx.stroke();
+  ctx.fillStyle = '#ffe9b0'; ctx.fillText(name, cx, y0 - s * 1.55 + 11);
+  ctx.restore();
+}
+
 // Harvested land: pale stubble wash with cut-stalk stubs while it regrows.
 function drawStubbleFx(ctx, cx, cy, size, seed) {
   ctx.save(); hexPathLocal(ctx, cx, cy, size); ctx.clip();
@@ -1635,6 +1671,9 @@ function panelIcon(ctx, x, y, s, kind, col) {
     ctx.fillRect(-s * 0.38, -s * 0.12, s * 0.7, s * 0.2);
     ctx.lineWidth = Math.max(1, s * 0.1);
     ctx.beginPath(); ctx.moveTo(-s * 0.18, s * 0.2); ctx.lineTo(-s * 0.26, s * 0.42); ctx.moveTo(s * 0.14, s * 0.2); ctx.lineTo(s * 0.06, s * 0.42); ctx.stroke();
+  } else if (kind === 'person') {
+    ctx.beginPath(); ctx.arc(0, -s * 0.24, s * 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, s * 0.42, s * 0.4, Math.PI, 0); ctx.fill();
   } else if (kind === 'sprout') {
     ctx.beginPath(); ctx.moveTo(0, s * 0.5); ctx.lineTo(0, -s * 0.08); ctx.stroke();
     ctx.beginPath(); ctx.ellipse(-s * 0.18, -s * 0.18, s * 0.18, s * 0.1, Math.PI / 4, 0, Math.PI * 2); ctx.fill();
@@ -1717,6 +1756,21 @@ function drawPanel(ctx, g, view, t) {
     y += 14;
     ctx.fillStyle = '#9fb094'; ctx.font = '11px Nunito, sans-serif';
     ctx.fillText(irrN + ' farm' + (irrN > 1 ? 's' : '') + ' watered by rivers', pad, y); y += 16;
+  }
+
+  // ---- Visiting traveller & their wish ----
+  if (g.visitor) {
+    const v = g.visitor;
+    panelDivider(ctx, pad, y, barW); y += 16;
+    panelHead(ctx, pad, y, 'person', v.name.toUpperCase(), '#e0b66f');
+    ctx.textAlign = 'right'; ctx.fillStyle = '#cdb892'; ctx.font = '800 11px Nunito, sans-serif';
+    ctx.fillText(v.left + (v.left === 1 ? ' tile' : ' tiles'), W - 16, y);
+    ctx.textAlign = 'left'; y += 16;
+    ctx.fillStyle = '#d6e2cc'; ctx.font = 'italic 12px Nunito, sans-serif';
+    const words = ('“' + v.wish + '”').split(' '); let line = '', ly = y;
+    for (const w2 of words) { const test = line ? line + ' ' + w2 : w2; if (ctx.measureText(test).width > barW && line) { ctx.fillText(line, pad, ly); ly += 14; line = w2; } else line = test; }
+    if (line) ctx.fillText(line, pad, ly);
+    y = ly + 16;
   }
 
   // ---- Wildfire warning ----
@@ -1966,6 +2020,7 @@ function drawGameOver(ctx, g, view, t) {
   {
     const st = g.stats || {};
     const story = [];
+    if (st.visitors) story.push(`${st.visitors} traveller${st.visitors > 1 ? 's' : ''} left the vale delighted`);
     if (st.harvests) story.push(`${st.harvests} harvest${st.harvests > 1 ? 's' : ''} reaped from ripe land`);
     if (st.sprouted) story.push(`the wild took root ${st.sprouted} time${st.sprouted > 1 ? 's' : ''} on its own`);
     if (st.growth) story.push(`Your rivers fed the farms — +${st.growth} grown`);
