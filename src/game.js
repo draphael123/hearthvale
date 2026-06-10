@@ -242,7 +242,7 @@ export function weatherInfo(g) {
 function refreshIrrigation(g) {
   let n = 0;
   for (const t of g.board.values()) {
-    if (t.corrupt || !t.edges.some(e => e === 'field' || e === 'orchard')) { t.irrigated = false; continue; }
+    if (t.corrupt || t.flooded || t.overgrown || t.burning || !t.edges.some(e => e === 'field' || e === 'orchard')) { t.irrigated = false; continue; }
     let wet = t.edges.includes('water');
     for (let i = 0; i < 6 && !wet; i++) {
       const n = neighbor(t.q, t.r, i);
@@ -262,11 +262,13 @@ function refreshIrrigation(g) {
 // Burnt-out tiles leave fertile ash: build beside it for a bonus, and it
 // regrows. Warden runs face it much more often.
 function flammable(t) {
-  if (t.corrupt || t.burning || t.ash) return false;
+  if (t.corrupt || t.burning || t.ash || t.flooded) return false;
+  if (t.overgrown) return true;                      // dry brambles are tinder
   let dry = 0; for (const e of t.edges) if (e === 'forest' || e === 'field' || e === 'orchard') dry++;
   return dry >= 2;
 }
 function firebreak(t) {
+  if (t.flooded) return true;                        // floodwater stops fire cold
   let mtn = 0;
   for (const e of t.edges) { if (e === 'water' || e === 'coast' || e === 'marsh') return true; if (e === 'mountain') mtn++; }
   return mtn >= 2;
@@ -283,7 +285,7 @@ function advanceFire(g) {
   }
   for (const t of burning) {
     t.burning--;
-    if (t.burning <= 0) { t.burning = 0; t.ash = true; out.burnedOut++; }
+    if (t.burning <= 0) { t.burning = 0; t.ash = true; t.overgrown = false; out.burnedOut++; }   // fire clears brambles
   }
   for (const t of burning) {
     if (Math.random() > (g.mode === 'warden' ? 0.5 : 0.35)) continue;
@@ -303,6 +305,58 @@ function advanceFire(g) {
       if (cands.length) { cands[(Math.random() * cands.length) | 0].burning = 2; out.ignited = 1; out.started = true; }
     }
   }
+  return out;
+}
+
+// ---- wild force: flood (rain swells the rivers into low land) ----
+// During a Downpour, water creeps from rivers into low-lying neighbours;
+// mountains and high ground are natural levees. When the rain passes the
+// flood recedes, leaving fertile floodplain — build beside it for rich silt.
+const ELEV_G = { mountain: 0.95, ruins: 0.5, fae: 0.42, forest: 0.34, orchard: 0.3, village: 0.24, moor: 0.16, field: 0.12, marsh: -0.16, coast: -0.2, water: -0.3 };
+function tileElev(t) { let s = 0; for (const e of t.edges) s += (ELEV_G[e] || 0); return s / 6; }
+function advanceFlood(g) {
+  const out = { flooded: 0, receded: 0 };
+  const raining = g.weather && g.weather.type === 'rain';
+  if (!raining) {
+    for (const t of g.board.values()) if (t.flooded) { t.flooded = false; t.floodplain = true; out.receded++; }
+    return out;
+  }
+  const sources = [...g.board.values()].filter(t => t.flooded || t.edges.includes('water'));
+  for (const s of sources) {
+    if (Math.random() > 0.22) continue;
+    const opts = [];
+    for (let i = 0; i < 6; i++) {
+      const n = neighbor(s.q, s.r, i);
+      const nb = g.board.get(key(n.q, n.r));
+      if (nb && !nb.flooded && !nb.corrupt && !nb.burning && !nb.edges.includes('water') && tileElev(nb) <= 0.12) opts.push(nb);
+    }
+    if (opts.length) { opts[(Math.random() * opts.length) | 0].flooded = true; out.flooded++; }
+  }
+  return out;
+}
+
+// ---- wild force: overgrowth (the unmanaged wild creeps into tame land) ----
+// A big wild forest or fae wood (region ≥ 5) sends brambles into adjacent
+// farms and villages every so often. Build beside an overgrown tile to prune
+// it (+ bonus). Overgrown brush is tinder — fire clears it too.
+function advanceOvergrowth(g) {
+  const out = { grew: 0 };
+  if ((g.placed % 3) !== 0) return out;
+  if (Math.random() >= (g.mode === 'warden' ? 0.22 : 0.12)) return out;
+  const cands = [];
+  for (const t of g.board.values()) {
+    let wild = 0; for (const e of t.edges) if (e === 'forest' || e === 'fae') wild++;
+    if (wild < 3 || t.corrupt || t.burning) continue;
+    const region = regionTiles(g, t, t.edges.includes('forest') ? 'forest' : 'fae');
+    if (region.size < 5) continue;
+    for (let i = 0; i < 6; i++) {
+      const n = neighbor(t.q, t.r, i);
+      const nb = g.board.get(key(n.q, n.r));
+      if (nb && !nb.overgrown && !nb.corrupt && !nb.burning && !nb.flooded &&
+          nb.edges.some(e => e === 'field' || e === 'orchard' || e === 'village')) cands.push(nb);
+    }
+  }
+  if (cands.length) { cands[(Math.random() * cands.length) | 0].overgrown = true; out.grew = 1; }
   return out;
 }
 
@@ -521,7 +575,7 @@ export function place(g, q, r) {
   // Wildfire: this placement can douse flames (water/coast edges) and reclaim
   // fertile ash beside it; then the fire itself advances.
   const fire = { ignited: 0, spread: 0, burnedOut: 0, doused: 0, started: false };
-  let ashBonus = 0;
+  let ashBonus = 0, siltBonus = 0, pruned = 0;
   {
     const wetPlaced = edges.some(e => e === 'water' || e === 'coast');
     for (let i = 0; i < 6; i++) {
@@ -529,14 +583,23 @@ export function place(g, q, r) {
       const nb = g.board.get(key(n.q, n.r));
       if (!nb) continue;
       if (wetPlaced && nb.burning) { nb.burning = 0; fire.doused++; }
-      if (nb.ash) { nb.ash = false; ashBonus += 5; }      // new growth on burnt land
+      if (nb.ash) { nb.ash = false; ashBonus += 5; }            // new growth on burnt land
+      if (nb.floodplain) { nb.floodplain = false; siltBonus += 6; }   // rich silt claimed
+      if (nb.overgrown) { nb.overgrown = false; pruned++; }     // brambles pruned back
     }
-    points += fire.doused * 10 + ashBonus;
+    points += fire.doused * 10 + ashBonus + siltBonus + pruned * 6;
     const adv = advanceFire(g);
     fire.ignited = adv.ignited; fire.spread += adv.spread; fire.burnedOut = adv.burnedOut;
     fire.doused += adv.doused; fire.started = adv.started;
-    points -= (fire.ignited + fire.spread) * 8;           // burning land hurts
+    points -= (fire.ignited + fire.spread) * 8;                 // burning land hurts
   }
+
+  // Flood swells during a Downpour and recedes after; the wild creeps into
+  // tame land beside big unmanaged woods.
+  const flood = advanceFlood(g);
+  points -= flood.flooded * 5;
+  const over = advanceOvergrowth(g);
+  points -= over.grew * 4;
 
   // Living valley: rivers water adjacent farms — the land yields a little
   // growth on its own each placement (the fields sleep while frozen).
@@ -560,6 +623,7 @@ export function place(g, q, r) {
     weatherBonus: sm.weatherBonus || 0, weatherStarted,
     fireStarted: fire.started, fireSpread: fire.spread, fireDoused: fire.doused,
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
+    flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
   };
 
   // Zen / endless mode: keep the stack topped up so the run never ends.

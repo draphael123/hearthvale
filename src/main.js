@@ -218,6 +218,11 @@ function tryPlace() {
   }
   if (res.fireDoused) { toasts.push([60, 'Fire doused', `the flames go out · +${res.fireDoused * 10}`, '#8fd0e0']); wantSound(47, () => audio.cleanse()); }
   if (res.ashBonus) toasts.push([45, 'Fertile ash', `new growth on burnt land · +${res.ashBonus}`, '#d9b48a']);
+  if (res.flooded) toasts.push([58, 'Floodwater rises', 'low fields drown until the rain passes — high ground holds', '#6fa6d0']);
+  if (res.receded) toasts.push([56, 'The flood recedes', 'rich silt left behind — build beside it to claim it', '#8fd0a0']);
+  if (res.overgrew) toasts.push([62, 'The wild creeps in', 'brambles overgrow a farm — build beside it to prune them', '#7aa05a']);
+  if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 6}`, '#9bd86b']); wantSound(43, () => audio.bell(0.13)); }
+  if (res.siltBonus) toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']);
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
 
   // Teaching hints only fill a quiet moment — never compete with a real event.

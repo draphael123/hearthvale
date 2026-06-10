@@ -1053,7 +1053,11 @@ export function render(ctx, g, view, mouse, t, opts) {
     if (tile.corrupt) drawCorruption(ctx, cx, cy, size, tile, t);
     if (tile.burning) drawFireFx(ctx, cx, cy, sz, t, seed);
     else if (tile.ash) drawAshFx(ctx, cx, cy, sz, seed, t);
+    if (tile.flooded) drawFloodFx(ctx, cx, cy, sz, t, seed);
+    else if (tile.floodplain) drawFloodplainFx(ctx, cx, cy, sz, seed);
+    if (tile.overgrown && !tile.burning) drawOvergrowthFx(ctx, cx, cy, sz, seed, t);
     if (tile.irrigated && !tile.corrupt && !tile.burning && !settings.reducedMotion) drawIrrigationGlints(ctx, cx, cy, sz, t, seed);
+    if (!settings.reducedMotion && tile.edges.includes('water')) drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t);
     if (settings.symbols) drawTerrainSymbols(ctx, cx, cy, size, tile.edges);
     if (!tile.corrupt) drawProsperity(ctx, cx, cy, size, tile, t);
     const qd = g.quests.find(q => q.q === tile.q && q.r === tile.r);
@@ -1348,6 +1352,81 @@ function drawAshFx(ctx, cx, cy, size, seed, t) {
   }
   ctx.restore();
 }
+// Flooded tile: a translucent water sheet with drifting ripple rings.
+function drawFloodFx(ctx, cx, cy, size, t, seed) {
+  ctx.save(); hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  ctx.fillStyle = 'rgba(62,112,150,0.5)';
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  for (let i = 0; i < 2; i++) {
+    const ph = ((t / 1400 + i * 0.5 + (seed % 9) / 9) % 1);
+    ctx.strokeStyle = `rgba(210,235,250,${0.3 * (1 - ph)})`;
+    ctx.lineWidth = 1.2;
+    const rr = size * 0.2 + ph * size * 0.5;
+    ctx.beginPath(); ctx.ellipse(cx, cy + size * 0.08, rr, rr * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+}
+// Receded floodplain: rich dark silt dotted with new green sprouts.
+function drawFloodplainFx(ctx, cx, cy, size, seed) {
+  ctx.save(); hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  ctx.fillStyle = 'rgba(74,58,38,0.4)';
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  ctx.fillStyle = 'rgba(140,200,110,0.8)';
+  for (let i = 0; i < 4; i++) {
+    const a = ((seed >> i) % 9) / 9 * Math.PI * 2, rr = size * (0.15 + ((seed >> (i + 3)) % 5) / 12);
+    ctx.fillRect(cx + Math.cos(a) * rr - 0.8, cy + Math.sin(a) * rr * 0.7 - 2.5, 1.6, 3.5);
+  }
+  ctx.restore();
+}
+// Overgrown tile: tangled bramble vines creeping over tame land.
+function drawOvergrowthFx(ctx, cx, cy, size, seed, t) {
+  ctx.save(); hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  ctx.fillStyle = 'rgba(30,52,26,0.38)';
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  ctx.strokeStyle = 'rgba(46,82,38,0.9)'; ctx.lineWidth = Math.max(1, size * 0.04); ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const a0 = ((seed >> i) % 6) / 6 * Math.PI * 2;
+    const sway = Math.sin(t / 800 + i * 2) * size * 0.03;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a0) * size * 0.8, cy + Math.sin(a0) * size * 0.55);
+    ctx.quadraticCurveTo(cx + sway, cy - size * 0.05, cx + Math.cos(a0 + 2.5) * size * 0.55, cy + Math.sin(a0 + 2.5) * size * 0.4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(120,60,90,0.85)';
+  for (let i = 0; i < 3; i++) { const a = ((seed >> (i + 2)) % 8) / 8 * Math.PI * 2; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * size * 0.4, cy + Math.sin(a) * size * 0.3, size * 0.04, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+}
+// Rivers visibly flow downhill: light streaks drift toward the lower
+// neighbouring water tile (direction from the smoothed elevation map).
+const FLOWN = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+function drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t) {
+  let vx = 0, vy = 0, wn = 0;
+  const own = liftOf(tile);
+  for (let i = 0; i < 6; i++) {
+    if (tile.edges[i] !== 'water') continue;
+    wn++;
+    const nb = g.board.get(key(tile.q + FLOWN[i][0], tile.r + FLOWN[i][1]));
+    if (!nb || !nb.edges.includes('water')) continue;
+    const d = own - liftOf(nb);                       // positive → downhill that way
+    const a = 60 * i * Math.PI / 180;
+    vx += Math.cos(a) * d; vy += Math.sin(a) * d;
+  }
+  if (!wn) return;
+  const mag = Math.hypot(vx, vy);
+  if (mag < size * 0.012) return;                     // essentially still water
+  vx /= mag; vy /= mag;
+  const seed = hashCoord(tile.q, tile.r);
+  for (let i = 0; i < 2; i++) {
+    const ph = ((t / 800 + i * 0.5 + ((seed >> i) % 7) / 7) % 1);
+    const d0 = (ph - 0.5) * size * 0.9;
+    const px = cx + vx * d0, py = cy + vy * d0 * 0.85;
+    ctx.strokeStyle = `rgba(220,245,255,${0.35 * Math.sin(ph * Math.PI)})`;
+    ctx.lineWidth = Math.max(1, size * 0.045); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(px - vx * size * 0.12, py - vy * size * 0.12);
+    ctx.lineTo(px + vx * size * 0.12, py + vy * size * 0.12); ctx.stroke();
+  }
+}
+
 // Irrigated farm: tiny water glints so you can see the river feeding it.
 function drawIrrigationGlints(ctx, cx, cy, size, t, seed) {
   for (let i = 0; i < 2; i++) {
@@ -1558,6 +1637,24 @@ function drawPanel(ctx, g, view, t) {
     ctx.fillText(burningN + ' burning', W - 16, y); ctx.textAlign = 'left'; y += 15;
     ctx.fillStyle = '#c0a08a'; ctx.font = '10px Nunito, sans-serif';
     ctx.fillText('Place water beside flames · rain douses all', pad, y); y += 16;
+  }
+
+  // ---- Flood & overgrowth warnings ----
+  let floodN = 0, overN = 0;
+  for (const tt of g.board.values()) { if (tt.flooded) floodN++; if (tt.overgrown) overN++; }
+  if (floodN) {
+    panelHead(ctx, pad, y, 'rain', 'FLOOD', '#6fa6d0');
+    ctx.textAlign = 'right'; ctx.fillStyle = '#9cc4e0'; ctx.font = '800 12px Nunito, sans-serif';
+    ctx.fillText(floodN + ' under water', W - 16, y); ctx.textAlign = 'left'; y += 14;
+    ctx.fillStyle = '#8aa6bc'; ctx.font = '10px Nunito, sans-serif';
+    ctx.fillText('Recedes when the rain passes', pad, y); y += 16;
+  }
+  if (overN) {
+    panelHead(ctx, pad, y, 'leaf', 'OVERGROWTH', '#7aa05a');
+    ctx.textAlign = 'right'; ctx.fillStyle = '#9bc086'; ctx.font = '800 12px Nunito, sans-serif';
+    ctx.fillText(overN + ' overgrown', W - 16, y); ctx.textAlign = 'left'; y += 14;
+    ctx.fillStyle = '#8fa386'; ctx.font = '10px Nunito, sans-serif';
+    ctx.fillText('Build beside the brambles to prune', pad, y); y += 16;
   }
 
   // ---- Journey objective ----
