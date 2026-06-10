@@ -1,0 +1,46 @@
+Hearthvale — third-party assets
+================================
+
+Music — a crossfading playlist of CC0 (public domain) tracks
+  License for all: CC0 1.0 Universal — https://creativecommons.org/publicdomain/zero/1.0/
+  No attribution is required; credited here as good practice.
+
+  "Forest Ambience" by TinyWorlds
+    https://opengameart.org/content/forest-ambience
+    File: music/forest_ambience.mp3
+
+  "The Field of Dreams" by pauliuw
+    https://opengameart.org/content/the-field-of-dreams
+    File: music/field_of_dreams.mp3
+
+  "Medieval: The Bard's Tale" by RandomMind
+    https://opengameart.org/content/medieval-the-bards-tale
+    File: music/bards_tale.mp3
+
+  "Medieval: The Old Tower Inn" by RandomMind
+    https://opengameart.org/content/medieval-the-old-tower-inn
+    File: music/old_tower_inn.mp3
+
+  "Medieval: Harvest Season" by RandomMind
+    https://opengameart.org/content/medieval-harvest-season
+    File: music/harvest_season.mp3
+
+  "Medieval: King's Feast" by RandomMind
+    https://opengameart.org/content/medieval-kings-feast
+    File: music/kings_feast.mp3
+
+  "Medieval: Market Day" by RandomMind
+    https://opengameart.org/content/medieval-market-day
+    File: music/market_day.mp3
+
+  Additional tracks (files prefixed "oga_") are CC0 / public-domain works
+  sourced from OpenGameArt's CC0 music collections:
+    https://opengameart.org/content/cc0-music-0
+    https://opengameart.org/content/cc0-fantasy-music-sounds
+  Every track was downloaded only after verifying a CC0 (public-domain)
+  license badge on its page. Attribution is not required under CC0; the
+  authoritative per-track source/author is on each track's OpenGameArt page.
+  The exact playlist is listed in music/manifest.json.
+
+All other audio (ambient pad, biome layers, chimes, bells, etc.) is
+synthesized at runtime via the Web Audio API — no external files.

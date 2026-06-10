@@ -1,0 +1,29 @@
+# dependencies / build / editor cruft
+node_modules/
+dist/
+.vercel/
+.DS_Store
+*.log
+
+# Music: the full ~280 MB library stays local. Ship only the curated set
+# listed in music/manifest.json so the repo + deploy stay lean.
+music/*
+!music/manifest.json
+!music/forest_ambience.mp3
+!music/field_of_dreams.mp3
+!music/bards_tale.mp3
+!music/old_tower_inn.mp3
+!music/harvest_season.mp3
+!music/kings_feast.mp3
+!music/market_day.mp3
+!music/oga_A_Legend_Will_Rise.mp3
+!music/oga_Green_Hills.mp3
+!music/oga_Quaint_Town_0.mp3
+!music/oga_Long_Journey.mp3
+!music/oga_Magic_Town_0.mp3
+!music/oga_TownTheme.mp3
+!music/oga_Sunflower-Valley-isaiah658.ogg
+!music/oga_Meadow_Thoughts.ogg
+!music/oga_SummerTown.mp3
+!music/oga_mythica.mp3
+!music/oga_DST-GrassLands.mp3

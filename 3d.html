@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hearthvale — 3D proof of concept</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1410; }
+      #c { display: block; width: 100vw; height: 100vh; }
+      #info {
+        position: fixed; top: 10px; left: 12px; color: #f0e6c8;
+        font: 13px "Trebuchet MS", system-ui, sans-serif; pointer-events: none;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/lib/three.module.js", "three/addons/": "/lib/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="info">Hearthvale · 3D proof-of-concept — drag to orbit · scroll to zoom · right-drag to pan</div>
+    <script type="module" src="/3d.js"></script>
+  </body>
+</html>

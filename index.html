@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Hearthvale</title>
+    <style>
+      /* Vendored cozy-fantasy type: Cinzel (display) + Nunito (body). */
+      @font-face { font-family: 'Cinzel'; font-weight: 600; src: url('/fonts/cinzel-600.woff2') format('woff2'); font-display: swap; }
+      @font-face { font-family: 'Cinzel'; font-weight: 700; src: url('/fonts/cinzel-700.woff2') format('woff2'); font-display: swap; }
+      @font-face { font-family: 'Nunito'; font-weight: 400; src: url('/fonts/nunito-400.woff2') format('woff2'); font-display: swap; }
+      @font-face { font-family: 'Nunito'; font-weight: 700; src: url('/fonts/nunito-700.woff2') format('woff2'); font-display: swap; }
+      @font-face { font-family: 'Nunito'; font-weight: 800; src: url('/fonts/nunito-800.woff2') format('woff2'); font-display: swap; }
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0d1410;
+        font-family: "Nunito", "Segoe UI", system-ui, sans-serif;
+        color: #eae4d2;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+        overscroll-behavior: none;
+      }
+      #wrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 25%, #1b2a1f, #0a0f0b 80%);
+      }
+      #game {
+        display: block;
+        background: #12180f;
+        box-shadow: 0 0 60px rgba(0,0,0,0.7);
+        cursor: pointer;
+        touch-action: none;
+        width: min(100vw, 177.78vh);
+        height: min(56.25vw, 100vh);
+      }
+      #hint {
+        position: fixed;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: #5d6e5a;
+        letter-spacing: 0.5px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <canvas id="game" width="960" height="540"></canvas>
+    </div>
+    <div id="hint">Click a glowing slot to place &middot; R / right-click / Space to rotate &middot; drag empty space to pan</div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "hearthvale",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5628 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --port 5628 --strictPort"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
