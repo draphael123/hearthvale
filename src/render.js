@@ -2570,8 +2570,9 @@ const TUT = [
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
   { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], art: 'living' },
   { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], art: 'fire' },
-  { title: '10 · The Blight & the Wardens', body: ['In Warden mode, a Blightheart rises and', 'corruption spreads from it (−points).', 'Wall it off with water / mountain / coast,', 'cleanse with fae tiles, and build a Wardtower —', 'its aura purges the heart over a few turns.'], art: 'blight' },
-  { title: '11 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },
+  { title: '10 · The Blight & the Wardens', body: ['In Warden mode, Blighthearts rise and', 'corruption spreads from them (−points).', 'Cleanse tiles with fae edges or a shrine,', 'and build a Wardtower — holding its aura on', 'a heart purges it and its whole cluster.'], art: 'blight' },
+  { title: '11 · Know your blight', body: ['Rot creeps tile by tile — wall it with water', '& mountains, but purge before it FESTERS', '(old rot spreads twice as fast).', 'Spore leaps OVER walls — purge it quickly.', 'Tendril slithers along rivers & roads —', 'water won’t stop it; guard what you connect.'], art: 'hearts' },
+  { title: '12 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },
   { title: 'Go grow a vale', body: ['That’s everything! Fulfil decrees for more', 'tiles, raise towns, and watch the world come', 'to life around you.', '', 'Press Play and lay your first tile.'], art: 'tile' },
 ];
 
@@ -2643,6 +2644,22 @@ function drawTutArt(ctx, art, cx, cy, t) {
     ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t / 300); ctx.fillStyle = '#e24bd0'; ctx.beginPath(); ctx.arc(cx - dx / 2, cy, sz * 0.22, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     drawTile(ctx, cx + dx / 2, cy, sz, ['mountain', 'field', 'mountain', 'field', 'village', 'field'], 9, 'wardtower', t);
     ctx.strokeStyle = `rgba(150,220,255,${0.5 + 0.3 * Math.sin(t / 400)})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx + dx / 2, cy, sz * 1.08, 0, Math.PI * 2); ctx.stroke();
+  } else if (art === 'hearts') {
+    // The three blight kinds: pulsing cores in their tell-tale colours.
+    const kinds = [['ROT', '#d05bd8'], ['SPORE', '#9fd83b'], ['TENDRIL', '#3bc4d0']];
+    ctx.textAlign = 'center';
+    kinds.forEach(([name, col], i) => {
+      const x = cx + (i - 1) * 120;
+      const pp = 0.5 + 0.5 * Math.sin(t / 240 + i * 2);
+      ctx.fillStyle = 'rgba(60,26,70,0.85)';
+      ctx.beginPath(); ctx.arc(x, cy - 6, 24, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = hexToRgba(col, 0.5 + 0.4 * pp);
+      ctx.beginPath(); ctx.arc(x, cy - 6, 9 + 3 * pp, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = hexToRgba(col, 0.5);
+      ctx.beginPath(); ctx.arc(x, cy - 6, 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = col; ctx.font = '800 11px Nunito, sans-serif';
+      ctx.fillText(name, x, cy + 34);
+    });
   } else if (art === 'modes') {
     const pills = [['Calm', '#4a9a3f'], ['Zen', '#2fa6b8'], ['Warden', '#b24bcf']];
     const pw = 116; ctx.textAlign = 'center';
