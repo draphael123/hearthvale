@@ -444,6 +444,8 @@ const VISITORS = [
   { id: 'bram', name: 'Old Bram the Reeve', wish: 'Raise a proud town of five', check: (g) => maxTownSize(g) >= 5, reward: 140 },
   { id: 'tilda', name: 'Tilda the Harvester', wish: 'Reap a ripe region while I watch', check: (g, b) => ((g.stats || {}).harvests || 0) > (b.harvests || 0), reward: 100 },
   { id: 'rook', name: 'Rook the Charcoal-Burner', wish: 'Light a controlled burn for my kilns', check: (g, b) => ((g.stats || {}).torched || 0) > (b.torched || 0), reward: 100 },
+  { id: 'hilda', name: 'Hilda the Matron', wish: 'Shelter thirty hearthfolk in your vale', check: (g) => !!(g.needs && g.needs.pop >= 30), reward: 140 },
+  { id: 'piet', name: 'Piet the Woodward', wish: 'Lay in wood for winter — three woods to spare', check: (g) => !!(g.needs && g.needs.wood >= g.needs.woodNeed + 3), reward: 110 },
 ];
 function advanceVisitor(g, irrigated) {
   const out = { arrived: null, helped: null, gone: null };
@@ -504,9 +506,11 @@ export function computeNeeds(g) {
     if (w >= 2) water += 1;
     if (wd >= 2 && !t.harvested) wood += 1;
   }
-  const foodNeed = Math.ceil(pop / 8), waterNeed = Math.ceil(pop / 12), woodNeed = Math.ceil(pop / 12);
+  // Winter hearths burn extra wood — lay in your forests before the snow.
+  const winter = seasonAt(g.placed) === 3;
+  const foodNeed = Math.ceil(pop / 8), waterNeed = Math.ceil(pop / 12), woodNeed = Math.ceil(pop / (winter ? 7 : 12));
   const met = pop < 6 || (food >= foodNeed && water >= waterNeed && wood >= woodNeed);
-  return { pop, food, water, wood, foodNeed, waterNeed, woodNeed, met };
+  return { pop, food, water, wood, foodNeed, waterNeed, woodNeed, met, winter };
 }
 
 // Per-edge scoring for a set of matched edge indices under a season + weather.

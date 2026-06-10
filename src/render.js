@@ -1763,6 +1763,10 @@ function drawPanel(ctx, g, view, t) {
       ctx.fillStyle = '#9bd86b'; ctx.font = '10px Nunito, sans-serif';
       ctx.fillText('every need met — the vale thrives', pad, y); y += 14;
     }
+    if (nd.winter && nd.pop >= 6) {
+      ctx.fillStyle = '#bcd2e6'; ctx.font = '10px Nunito, sans-serif';
+      ctx.fillText('❄ winter — hearths burn extra wood', pad, y); y += 14;
+    }
   }
 
   // ---- Weather front (telegraphed; tweaks scoring for a few tiles) ----
@@ -2544,7 +2548,7 @@ const TUT = [
   { title: '3 · Scoring', body: ['Each matched edge  ·······  +10', 'A flawless tile (all 6 edges)  ·  PERFECT +30', 'Chain perfect-ish placements  ·  combo ×2 … ×4', 'Coast meets a river  ·  Estuary +15', 'Landmark tiles  ·  a big bonus', 'Hover any slot to see the live breakdown.'], art: 'scoring' },
   { title: '4 · Decrees', body: ['Some tiles raise a Decree — a little flag', 'with a goal (e.g. "grow this forest to 5").', 'Reach it for a big bonus AND extra tiles,', 'so fulfilling decrees keeps your run going.'], art: 'decree' },
   { title: '5 · Towns & hearthfolk', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town. Your', 'folk need food, water & wood from the land —', 'meet every need and the vale thrives (★, ⚓,', 'steady income); fall short and growth waits.'], art: 'town' },
-  { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — and winter freezes the rivers', 'and blankets the land in snow.'], art: 'seasons' },
+  { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — winter freezes the rivers and', 'your folk burn extra wood to stay warm,', 'so lay in forests before the snow.'], art: 'seasons' },
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
   { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], art: 'living' },
   { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], art: 'fire' },
