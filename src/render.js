@@ -1055,6 +1055,7 @@ export function render(ctx, g, view, mouse, t, opts) {
     else if (tile.ash) drawAshFx(ctx, cx, cy, sz, seed, t);
     if (tile.flooded) drawFloodFx(ctx, cx, cy, sz, t, seed);
     else if (tile.floodplain) drawFloodplainFx(ctx, cx, cy, sz, seed);
+    if (tile.harvested) drawStubbleFx(ctx, cx, cy, sz, seed);
     if (tile.overgrown && !tile.burning) drawOvergrowthFx(ctx, cx, cy, sz, seed, t);
     if (tile.irrigated && !tile.corrupt && !tile.burning && !settings.reducedMotion) drawIrrigationGlints(ctx, cx, cy, sz, t, seed);
     if (!settings.reducedMotion && tile.edges.includes('water')) drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t);
@@ -1442,6 +1443,20 @@ function drawFlowStreaks(ctx, cx, cy, size, tile, g, liftOf, t) {
   }
 }
 
+// Harvested land: pale stubble wash with cut-stalk stubs while it regrows.
+function drawStubbleFx(ctx, cx, cy, size, seed) {
+  ctx.save(); hexPathLocal(ctx, cx, cy, size); ctx.clip();
+  ctx.fillStyle = 'rgba(216,196,140,0.32)';
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  ctx.strokeStyle = 'rgba(150,126,80,0.8)'; ctx.lineWidth = Math.max(1, size * 0.03); ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) {
+    const a = ((seed >> i) % 9) / 9 * Math.PI * 2, rr = size * (0.15 + ((seed >> (i + 2)) % 5) / 11);
+    const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.7;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - size * 0.08); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // Irrigated farm: tiny water glints so you can see the river feeding it.
 function drawIrrigationGlints(ctx, cx, cy, size, t, seed) {
   for (let i = 0; i < 2; i++) {
@@ -1492,30 +1507,40 @@ export function controlButtonRects() {
   return {
     rotate: { x: x0, y: yb, w: s, h: s },
     skip: { x: x0 + s + gap, y: yb, w: s, h: s },
-    torch: { x: x0 + 2 * (s + gap), y: yb, w: s, h: s },
+    harvest: { x: x0 + 2 * (s + gap), y: yb, w: s, h: s },
+    torch: { x: x0 + 3 * (s + gap), y: yb, w: s, h: s },
   };
 }
 export function controlHit(x, y) {
   const r = controlButtonRects();
-  for (const k of ['rotate', 'skip', 'torch']) { const b = r[k]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return k; }
+  for (const k of ['rotate', 'skip', 'harvest', 'torch']) { const b = r[k]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return k; }
   return null;
 }
 function drawControlButtons(ctx, mouse, g, view) {
   const r = controlButtonRects();
-  const defs = [['rotate', '#cdb24a'], ['skip', '#9d8ac0']];
+  const defs = [['rotate', '#cdb24a'], ['skip', '#9d8ac0'], ['harvest', '#9bd86b']];
   if ((g.torches || 0) > 0) defs.push(['torch', '#ff9a4d']);
   for (const [k, acc] of defs) {
     const b = r[k];
-    const armed = k === 'torch' && view && view.torchMode;
+    const armed = view && ((k === 'torch' && view.torchMode) || (k === 'harvest' && view.harvestMode));
     const hover = (mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h) || armed;
     roundRect(ctx, b.x, b.y, b.w, b.h, 12);
-    ctx.fillStyle = armed ? 'rgba(80,40,14,0.96)' : hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
+    ctx.fillStyle = armed ? (k === 'torch' ? 'rgba(80,40,14,0.96)' : 'rgba(34,58,22,0.96)') : hover ? 'rgba(42,34,20,0.96)' : 'rgba(20,16,10,0.82)'; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hover ? acc : hexToRgba(acc, 0.5); ctx.stroke();
     const cxp = b.x + b.w / 2, cyp = b.y + b.h / 2 - 4, col = hover ? '#fff7e0' : '#e6ddc6';
     if (k === 'torch') {
       panelIcon(ctx, cxp, cyp, 20, 'flame', armed ? '#ffcf6e' : '#ff9a4d');
       ctx.fillStyle = hover ? '#ffd9b0' : '#c0a08a'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
       ctx.fillText(armed ? 'TAP A TILE' : 'BURN ×' + g.torches, cxp, b.y + b.h - 7);
+      continue;
+    }
+    if (k === 'harvest') {
+      // sickle: curved blade + short handle
+      ctx.strokeStyle = armed ? '#cdf0a0' : col; ctx.lineWidth = 2.8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(cxp + 2, cyp - 2, 9, Math.PI * 0.15, Math.PI * 1.05); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cxp + 4, cyp + 5); ctx.lineTo(cxp + 9, cyp + 11); ctx.stroke();
+      ctx.fillStyle = hover ? '#d6f0c0' : '#9aa893'; ctx.textAlign = 'center'; ctx.font = '700 9px Nunito, sans-serif';
+      ctx.fillText(armed ? 'TAP A REGION' : 'REAP', cxp, b.y + b.h - 7);
       continue;
     }
     ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -1880,7 +1905,8 @@ function drawGameOver(ctx, g, view, t) {
 
   ctx.fillStyle = '#efe7cf';
   ctx.font = 'bold 30px Nunito, sans-serif';
-  ctx.fillText('The vale rests', cx, y);
+  const years = Math.max(1, Math.round(g.placed / 52));
+  ctx.fillText(`Winter Solstice — year ${years} rests`, cx, y);
   y += 18;
   ctx.fillStyle = '#8aa080';
   ctx.font = '12px Nunito, sans-serif';
@@ -1940,6 +1966,8 @@ function drawGameOver(ctx, g, view, t) {
   {
     const st = g.stats || {};
     const story = [];
+    if (st.harvests) story.push(`${st.harvests} harvest${st.harvests > 1 ? 's' : ''} reaped from ripe land`);
+    if (st.sprouted) story.push(`the wild took root ${st.sprouted} time${st.sprouted > 1 ? 's' : ''} on its own`);
     if (st.growth) story.push(`Your rivers fed the farms — +${st.growth} grown`);
     if (st.fires) story.push(`${st.fires} wildfire${st.fires > 1 ? 's' : ''} · ${st.doused || 0} doused · ${st.burned || 0} tile${(st.burned || 0) === 1 ? '' : 's'} burnt`);
     if (st.floods) story.push(`${st.floods} field${st.floods > 1 ? 's' : ''} flooded · rich silt claimed +${st.silt || 0}`);
@@ -2419,7 +2447,7 @@ const TUT = [
   { title: '5 · Towns & prosperity', body: ['Connect village tiles and a cottage grows', 'into a hamlet, then a bustling town with a', 'church and lit windows. Give a town food,', 'water & wood nearby and it prospers (★);', 'reach the coast for a port (⚓).'], art: 'town' },
   { title: '6 · Seasons', body: ['The vale turns through the seasons as it', 'grows. Each season favours one terrain for', 'bonus points — and winter freezes the rivers', 'and blankets the land in snow.'], art: 'seasons' },
   { title: '7 · Weather fronts', body: ['Weather rolls in for a few tiles at a time —', 'watch the panel. Harvest Sun ripens fields', '& orchards; a Downpour swells rivers (but', 'floods low fields — high ground holds);', 'a Cold Snap freezes the rivers solid.'], art: 'weather' },
-  { title: '8 · The living valley', body: ['Rivers water the farms beside them, and', 'watered farms yield a little every turn.', 'Receded floods leave rich silt; big wild', 'woods sprout brambles into your farmland.', 'Build beside silt or brambles to claim & prune.'], art: 'living' },
+  { title: '8 · The living valley', body: ['Rivers water farms beside them — watered', 'farms yield every turn. The wild also spreads', 'on its own: young woods take root unbidden.', 'Harvest ripe regions with the sickle (G) for', 'points & tiles — the land rests, then regrows.'], art: 'living' },
   { title: '9 · Wildfire', body: ['In a drought, dry growth can catch fire', 'and spread each turn. Water, marsh and', 'mountains block it — rain or a placed', 'water tile douses it for a reward. Burnt', 'land leaves fertile ash to build beside —', 'or set a controlled burn with the 🔥 torch (F).'], art: 'fire' },
   { title: '10 · The Blight & the Wardens', body: ['In Warden mode, a Blightheart rises and', 'corruption spreads from it (−points).', 'Wall it off with water / mountain / coast,', 'cleanse with fae tiles, and build a Wardtower —', 'its aura purges the heart over a few turns.'], art: 'blight' },
   { title: '11 · Choose your way', body: ['Calm — cozy, gentle wilds', 'Zen — endless, no game-over, just build', 'Warden — defend against blight & fire', 'Journey — directed map objectives', 'Themed & Daily — fixed palettes · seeded board.'], art: 'modes' },

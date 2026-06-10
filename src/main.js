@@ -1,6 +1,6 @@
 // Entry point: game loop, input, pan/zoom, and meta-save wiring.
 import { pixelToHex, hexToPixel, key } from './hex.js';
-import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER, igniteTile } from './game.js';
+import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER, igniteTile, harvestRegion } from './game.js';
 import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
@@ -233,6 +233,11 @@ function tryPlace() {
   if (res.pruned) { toasts.push([44, 'Brambles pruned', `the farm breathes again · +${res.pruned * 15}`, '#9bd86b']); wantSound(43, () => audio.prune()); }
   if (res.siltBonus) { toasts.push([45, 'Rich silt', `the floodplain feeds new fields · +${res.siltBonus}`, '#a8c87a']); wantSound(42, () => audio.bell(0.12)); }
   if (res.growth && hints.fire('growth_intro')) toasts.push([42, 'The valley grows', 'Rivers water nearby farms — they yield a little each turn', '#9bd86b']);
+  if (res.sprouted) {
+    toasts.push([38, 'The wild spreads', `a young ${res.sprouted.terr} takes root on its own`, '#8fc486']);
+    const sp = hexToPixel(res.sprouted.q, res.sprouted.r, view.size);
+    fx.sproutFx(res.sprouted.q + ',' + res.sprouted.r, BOARD_W / 2 + view.panX + sp.x, H / 2 + view.panY + sp.y, view.size);
+  }
 
   // Teaching hints only fill a quiet moment — never compete with a real event.
   if (!toasts.length) { const h = pickHint(res); if (h) toasts.push([10, h.text, h.sub, h.color]); }
@@ -432,7 +437,13 @@ canvas.addEventListener('pointerup', (e) => {
     if (ch === 'rotate') { view.torchMode = false; rotateCW(g); audio.rotate(); return; }
     if (ch === 'skip') { view.torchMode = false; if (skipTile(g)) { audio.skip(); saveRunState(); } return; }
     if (ch === 'torch') {
+      view.harvestMode = false;
       if ((g.torches || 0) > 0) { view.torchMode = !view.torchMode; audio.click(); }
+      return;
+    }
+    if (ch === 'harvest') {
+      view.torchMode = false;
+      view.harvestMode = !view.harvestMode; audio.click();
       return;
     }
     // Torch armed: the next tap ignites a flammable tile (or cancels).
@@ -442,6 +453,21 @@ canvas.addEventListener('pointerup', (e) => {
         audio.fireStart();
         fx.toast('Controlled burn', 'the fire is yours now — keep it contained', '#ff9a4d');
         saveRunState();
+      }
+      return;
+    }
+    // Sickle armed: the next tap reaps a ripe region (or cancels).
+    if (view.harvestMode) {
+      view.harvestMode = false;
+      if (mouse.hex) {
+        const hv2 = harvestRegion(g, mouse.hex.q, mouse.hex.r);
+        if (hv2) {
+          audio.bloom();
+          fx.toast('Harvest!', `${hv2.size} ${hv2.terr} tiles reaped · +${hv2.points} · ${hv2.tiles} new tile${hv2.tiles === 1 ? '' : 's'}`, '#e8c24a');
+          saveRunState();
+        } else {
+          fx.toast('Nothing ripe here', 'reap a healthy forest / field / orchard region of 4+', '#9aa893');
+        }
       }
       return;
     }
@@ -478,7 +504,9 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'h' || e.key === 'H') {
     if (screen === 'play' && hold(g)) { audio.rotate(); saveRunState(); }
   } else if (e.key === 'f' || e.key === 'F') {
-    if (screen === 'play' && (g.torches || 0) > 0) { view.torchMode = !view.torchMode; audio.click(); }
+    if (screen === 'play' && (g.torches || 0) > 0) { view.harvestMode = false; view.torchMode = !view.torchMode; audio.click(); }
+  } else if (e.key === 'g' || e.key === 'G') {
+    if (screen === 'play') { view.torchMode = false; view.harvestMode = !view.harvestMode; audio.click(); }
   } else if (e.key === 'ArrowUp') {
     e.preventDefault(); setBoardTilt(BOARD_TILT + 0.05); saveTilt();   // raise camera (more top-down)
   } else if (e.key === 'ArrowDown') {

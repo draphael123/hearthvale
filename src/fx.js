@@ -106,6 +106,12 @@ function spawnScore(x, y, text, color, fontSize) {
   E.push({ type: 'score', x, y, text, color, fontSize, age: 0, life: 900 });
 }
 
+// A wild tile sprouting on its own: drop-in pop + a few drifting leaves.
+export function sproutFx(tileKey, x, y, size) {
+  drops.set(tileKey, { age: 0, life: 340 });
+  spawnLeaves(x, y, size, 5, false);
+}
+
 // A celebratory banner that scales in and fades, centered over the board. Only
 // one banner is ever shown — a new one replaces any lingering one (cohesion).
 export function banner(text, color) {

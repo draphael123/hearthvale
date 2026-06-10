@@ -244,7 +244,7 @@ export function weatherInfo(g) {
 function refreshIrrigation(g) {
   let n = 0;
   for (const t of g.board.values()) {
-    if (t.corrupt || t.flooded || t.overgrown || t.burning || !t.edges.some(e => e === 'field' || e === 'orchard')) { t.irrigated = false; continue; }
+    if (t.corrupt || t.flooded || t.overgrown || t.burning || t.harvested || !t.edges.some(e => e === 'field' || e === 'orchard')) { t.irrigated = false; continue; }
     let wet = t.edges.includes('water');
     for (let i = 0; i < 6 && !wet; i++) {
       const n = neighbor(t.q, t.r, i);
@@ -377,6 +377,59 @@ export function igniteTile(g, q, r) {
   const st = g.stats || (g.stats = {});
   st.torched = (st.torched || 0) + 1;
   return true;
+}
+
+// ---- cultivation: nature co-builds the vale ----
+// Every so often the wild spreads ON ITS OWN: a young wood / marsh / meadow
+// takes root in an open slot beside an existing wild region. The player is no
+// longer the only builder — they're a steward negotiating with a garden.
+const WILD_SOURCES = ['forest', 'marsh', 'fae', 'moor'];
+function sproutWild(g) {
+  if (g.gentleStart && g.placed < 24) return null;
+  if (g.placed < 10 || Math.random() > 0.16) return null;
+  // candidate slots: open, adjacent to a tile with ≥3 wild edges
+  const cands = [];
+  for (const t of g.board.values()) {
+    let best = null, bestN = 0;
+    for (const w of WILD_SOURCES) { let n = 0; for (const e of t.edges) if (e === w) n++; if (n > bestN) { bestN = n; best = w; } }
+    if (bestN < 3) continue;
+    for (let i = 0; i < 6; i++) {
+      const n = neighbor(t.q, t.r, i);
+      if (!g.board.has(key(n.q, n.r))) cands.push({ q: n.q, r: n.r, terr: best });
+    }
+  }
+  if (!cands.length) return null;
+  const c = cands[(Math.random() * cands.length) | 0];
+  // young wild tile: mostly the spreading terrain, a little mixed scrub
+  const edges = [];
+  for (let i = 0; i < 6; i++) edges.push(Math.random() < 0.7 ? c.terr : (Math.random() < 0.5 ? 'field' : c.terr));
+  g.board.set(key(c.q, c.r), { q: c.q, r: c.r, edges, wild: true });
+  const st = g.stats || (g.stats = {});
+  st.sprouted = (st.sprouted || 0) + 1;
+  return c;
+}
+
+// Harvest: a ripe forest / field / orchard region (≥ 4 connected tiles) can be
+// reaped — points + bonus tiles — and its land enters a regrow rest before it
+// can be harvested again. Regions have LIFECYCLES; the board is a crop.
+const HARVESTABLE = ['forest', 'field', 'orchard'];
+export function harvestRegion(g, q, r) {
+  if (g.gameOver) return null;
+  const t = g.board.get(key(q, r));
+  if (!t || t.harvested || t.burning || t.corrupt || t.flooded || t.overgrown) return null;
+  let terr = null, bestN = 0;
+  for (const h of HARVESTABLE) { let n = 0; for (const e of t.edges) if (e === h) n++; if (n > bestN) { bestN = n; terr = h; } }
+  if (!terr || bestN < 2) return null;
+  const region = [...regionTiles(g, t, terr)].map(k2 => g.board.get(k2)).filter(x => x && !x.harvested);
+  if (region.length < 4) return null;
+  for (const rt of region) { rt.harvested = true; rt.regrow = 12; }
+  const points = Math.min(80, region.length * 8);
+  const bonusTiles = Math.floor(region.length / 3);
+  for (let i = 0; i < bonusTiles; i++) g.stack.push(makeTile(g.palette));
+  g.score += points;
+  const st = g.stats || (g.stats = {});
+  st.harvests = (st.harvests || 0) + 1;
+  return { size: region.length, points, tiles: bonusTiles, terr };
 }
 
 // Per-edge scoring for a set of matched edge indices under a season + weather.
@@ -622,6 +675,11 @@ export function place(g, q, r) {
   const over = advanceOvergrowth(g);
   points -= over.grew * 8;
 
+  // Nature co-builds: the wild may sprout a young tile of its own, and
+  // harvested land regrows a little with every placement.
+  const sprouted = sproutWild(g);
+  for (const t of g.board.values()) if (t.harvested && --t.regrow <= 0) { t.harvested = false; t.regrow = 0; }
+
   // Living valley: rivers water adjacent farms — the land yields a little
   // growth on its own each placement (the fields sleep while frozen).
   const irrigated = refreshIrrigation(g);
@@ -645,6 +703,7 @@ export function place(g, q, r) {
     fireStarted: fire.started, fireSpread: fire.spread, fireDoused: fire.doused,
     fireBurnedOut: fire.burnedOut, ashBonus, irrigated, growth,
     flooded: flood.flooded, receded: flood.receded, overgrew: over.grew, pruned, siltBonus,
+    sprouted,
   };
 
   // Run chronicle: cumulative totals for the game-over "story of your vale".
