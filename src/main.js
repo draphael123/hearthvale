@@ -1,10 +1,10 @@
 // Entry point: game loop, input, pan/zoom, and meta-save wiring.
 import { pixelToHex, hexToPixel, key } from './hex.js';
-import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER, igniteTile, harvestRegion } from './game.js';
+import { newGame, place, rotateCW, skipTile, hold, serialize, deserialize, JOURNEY_PALETTE, WEATHER, igniteTile, harvestRegion, computeNeeds } from './game.js';
 import { render, renderTitle, titleHit, copyButtonRect, dailyShareText,
   drawPauseMenu, pauseHit, drawSettingsMenu, settingsHit,
   renderTutorial, tutorialHit, tutorialCount, holdSlotRect, renderDraft, draftHit, renderThemed, themedHit,
-  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, setRenderScale, setUiScale, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
+  renderModeSelect, modeSelHit, renderMusic, musicHit, musicMaxScroll, renderVisit, visitHit, setRenderScale, setUiScale, BOARD_TILT, setBoardTilt, perspInvX, zoomHit, controlHit, W, H } from './render.js';
 import { START_OPTIONS } from './tiles.js';
 import { loadSave, saveRun, paletteFor, todayYmd, persist, THEMES } from './meta.js';
 import { setRng } from './tiles.js';
@@ -78,6 +78,13 @@ const view = {
 };
 try { view.showcase = buildShowcase(); view.showcaseView = { size: 46, panX: 0, panY: 16 }; } catch (e) { console.error('showcase build failed', e); }
 
+// A #vale= link opens straight into the read-only postcard tour.
+if (location.hash.startsWith('#vale=')) {
+  decodeVale(location.hash.slice(6))
+    .then(vg => { visitG = vg; view.panX = 0; view.panY = 0; screen = 'visit'; })
+    .catch(e => console.error('postcard decode failed', e));
+}
+
 let screen = 'title';             // 'title' | 'themed' | 'draft' | 'play' | 'pause' | 'settings' | 'tutorial'
 let pendingMode = 'warden';       // mode chosen on the title, awaiting a start draft
 let pendingPalette = null;        // themed-valley palette override (or null)
@@ -89,6 +96,38 @@ let g = newGame(paletteFor(save));
 // ---- save / resume an in-progress run ----
 const RUN_KEY = 'hearthvale.run.v1';
 function hasSavedRun() { try { return !!localStorage.getItem(RUN_KEY); } catch (e) { return false; } }
+
+// ---- Vale postcards: share your living vale as a link ----
+// The run state compresses (deflate when the browser supports it) into a
+// base64url #vale= hash; opening the link gives a read-only living tour.
+let visitG = null;
+async function encodeVale(gg) {
+  const json = JSON.stringify(serialize(gg));
+  let bytes = new TextEncoder().encode(json);
+  let tag = 'r';
+  if (window.CompressionStream) {
+    const cs = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
+    bytes = new Uint8Array(await new Response(cs).arrayBuffer());
+    tag = 'd';
+  }
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return tag + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function decodeVale(s) {
+  const tag = s[0];
+  const b64 = s.slice(1).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  let bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  if (tag === 'd') {
+    const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+    bytes = new Uint8Array(await new Response(ds).arrayBuffer());
+  }
+  const vg = deserialize(JSON.parse(new TextDecoder().decode(bytes)));
+  vg.needs = computeNeeds(vg);
+  return vg;
+}
 
 // First-run onboarding: brand-new players walk through the tutorial before
 // their first vale (once — skippable with ✕, never repeats after).
@@ -398,6 +437,15 @@ canvas.addEventListener('pointerup', (e) => {
     }
     return;
   }
+  if (screen === 'visit') {
+    if (visitHit(mouse.x, mouse.y) === 'build') {
+      try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
+      visitG = null;
+      startAudio(); audio.click();
+      screen = 'title';
+    }
+    return;
+  }
   if (screen === 'music') {
     startAudio();
     const hit = musicHit(mouse.x, mouse.y, view);
@@ -445,6 +493,14 @@ canvas.addEventListener('pointerup', (e) => {
     const hit = pauseHit(mouse.x, mouse.y);
     if (hit) audio.click();
     if (hit === 'resume') screen = 'play';
+    else if (hit === 'share') {
+      screen = 'play';
+      encodeVale(g).then(code => {
+        const url = location.origin + location.pathname + '#vale=' + code;
+        return navigator.clipboard.writeText(url);
+      }).then(() => fx.toast('Postcard copied!', 'send the link — friends can tour your living vale', '#e0b66f'))
+        .catch(() => fx.toast('Could not copy', 'your browser blocked the clipboard — try again', '#b05a4a'));
+    }
     else if (hit === 'settings') screen = 'settings';
     else if (hit === 'new') restart();
     else if (hit === 'title') screen = 'title';
@@ -597,6 +653,8 @@ function frame(t) {
       renderThemed(ctx, view, mouse, t);
     } else if (screen === 'music') {
       renderMusic(ctx, view, mouse, t);
+    } else if (screen === 'visit' && visitG) {
+      renderVisit(ctx, visitG, view, mouse, t);
     } else if (screen === 'tutorial') {
       renderTutorial(ctx, tutorialIdx, mouse, t);
     } else {
@@ -641,10 +699,13 @@ window.__hv = {
     else if (screen === 'draft') renderDraft(ctx, view, mouse, t, pendingMode);
     else if (screen === 'themed') renderThemed(ctx, view, mouse, t);
     else if (screen === 'music') renderMusic(ctx, view, mouse, t);
+    else if (screen === 'visit' && visitG) renderVisit(ctx, visitG, view, mouse, t);
     else if (screen === 'tutorial') renderTutorial(ctx, tutorialIdx, mouse, t);
     else { render(ctx, g, view, mouse, t); if (screen === 'pause') drawPauseMenu(ctx, mouse); else if (screen === 'settings') drawSettingsMenu(ctx, mouse); }
   },
   setDraft: (m) => { pendingMode = m || 'warden'; screen = 'draft'; },
   setTutorial: (i) => { tutorialIdx = i; screen = 'tutorial'; },
+  encodeVale, decodeVale,
+  setVisit: (vg) => { visitG = vg; screen = 'visit'; },
   hasSavedRun, resumeRun, saveRunState,
 };

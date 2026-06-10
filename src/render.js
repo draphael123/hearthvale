@@ -2498,6 +2498,35 @@ export function renderThemed(ctx, view, mouse, t) {
   ctx.textAlign = 'left';
 }
 
+// ---- Vale postcard: read-only living tour of a shared vale ----
+function visitRects() {
+  return { build: { x: (W - 290) / 2, y: H - 62, w: 290, h: 44, label: 'Build your own vale ▸', accent: '#4a9a3f', fs: 18 } };
+}
+export function visitHit(x, y) {
+  const b = visitRects().build;
+  return (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) ? 'build' : null;
+}
+export function renderVisit(ctx, g, view, mouse, t) {
+  render(ctx, g, view, mouse, t, { bg: true });   // full-screen living board, no HUD
+  // postcard header
+  const w = 560, x = (W - w) / 2;
+  ctx.save();
+  roundRect(ctx, x, 14, w, 64, 12);
+  ctx.fillStyle = 'rgba(14,20,14,0.82)'; ctx.fill();
+  roundRect(ctx, x, 14, w, 64, 12);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,214,102,0.4)'; ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffe9b0'; ctx.font = '700 19px Cinzel, serif';
+  ctx.fillText('A postcard from a friend’s vale', W / 2, 40);
+  const pop = g.needs ? g.needs.pop : 0;
+  const years = Math.max(1, Math.round((g.placed || 0) / 52));
+  ctx.fillStyle = '#b9c8ad'; ctx.font = '13px Nunito, sans-serif';
+  ctx.fillText(`${(g.score || 0).toLocaleString()} points · ${pop} hearthfolk · ${g.placed || 0} tiles · year ${years} · drag to wander`, W / 2, 62);
+  ctx.restore();
+  titleButton(ctx, visitRects().build, mouse);
+  ctx.textAlign = 'left';
+}
+
 // ---- Music player screen ----
 const MUS = { listX: (W - 580) / 2, listW: 580, top: 250, rowH: 30, rows: 7 };
 function musicCtrlRects() {
@@ -2749,8 +2778,8 @@ function menuBtn(ctx, r, mouse) {
 }
 
 function pauseButtonRects() {
-  const c = menuCard(300), bw = c.w - 48, x = c.x + 24, gap = 48;
-  const defs = [['resume', 'Resume', '#4a8a3f'], ['settings', 'Settings', '#6f8ac0'], ['new', 'New Vale', '#9d5bd0'], ['title', 'Quit to Title', '#b05a4a']];
+  const c = menuCard(348), bw = c.w - 48, x = c.x + 24, gap = 48;
+  const defs = [['resume', 'Resume', '#4a8a3f'], ['share', '📤 Share my Vale', '#e0b66f'], ['settings', 'Settings', '#6f8ac0'], ['new', 'New Vale', '#9d5bd0'], ['title', 'Quit to Title', '#b05a4a']];
   return defs.map(([k, label, accent], i) => ({ k, label, accent, x, y: c.y + 70 + i * gap, w: bw, h: 38 }));
 }
 export function pauseHit(x, y) {
@@ -2758,7 +2787,7 @@ export function pauseHit(x, y) {
   return null;
 }
 export function drawPauseMenu(ctx, mouse) {
-  menuOverlay(ctx, menuCard(300), 'Paused');
+  menuOverlay(ctx, menuCard(348), 'Paused');
   for (const b of pauseButtonRects()) menuBtn(ctx, b, mouse);
   ctx.textAlign = 'left';
 }
